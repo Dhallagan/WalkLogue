@@ -7,7 +7,6 @@ import {
   Pill,
   PrimaryButton,
   Screen,
-  ScreenHeader,
   SecondaryButton,
   SectionLabel,
 } from "../src/components/ui";
@@ -68,41 +67,6 @@ export default function SettingsScreen() {
 
   return (
     <Screen scroll>
-      <ScreenHeader
-        eyebrow="Control Room"
-        title="Settings"
-        description="Treat this screen like a quick preflight. Microphone powers recording, Health adds steps, and Whisper turns audio into text."
-      />
-
-      <Panel tone="soft" style={styles.heroPanel}>
-        <Text style={styles.heroEyebrow}>Current Readiness</Text>
-        <Text style={styles.heroTitle}>
-          {getSetupHeadline(microphoneStatus, healthStatus, hasOpenAIKey)}
-        </Text>
-        <Text style={styles.heroBody}>
-          Keep the setup compact: one required permission, one optional data source,
-          one transcription service.
-        </Text>
-
-        <View style={styles.summaryGrid}>
-          <SummaryChip
-            label="Mic"
-            tone={microphoneTone}
-            value={formatPermissionLabel(microphoneStatus)}
-          />
-          <SummaryChip
-            label="Health"
-            tone={healthTone}
-            value={formatPermissionLabel(healthStatus)}
-          />
-          <SummaryChip
-            label="Whisper"
-            tone={whisperTone}
-            value={hasOpenAIKey ? "Ready" : "Missing"}
-          />
-        </View>
-      </Panel>
-
       <SectionLabel>Permissions</SectionLabel>
       <Panel style={styles.groupPanel}>
         <SettingBlock
@@ -181,23 +145,6 @@ type SettingAction = {
   onPress: () => void;
 };
 
-function SummaryChip({
-  label,
-  tone,
-  value,
-}: {
-  label: string;
-  tone: "default" | "success" | "danger";
-  value: string;
-}) {
-  return (
-    <View style={styles.summaryChip}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Pill tone={tone}>{value}</Pill>
-    </View>
-  );
-}
-
 function SettingBlock({
   eyebrow,
   title,
@@ -268,78 +215,7 @@ function formatPermissionLabel(
   return "Unknown";
 }
 
-function getSetupHeadline(
-  microphoneStatus: RecordingPermissionStatus,
-  healthStatus: HealthPermissionStatus,
-  hasOpenAIKey: boolean,
-) {
-  if (
-    microphoneStatus === "granted" &&
-    healthStatus === "granted" &&
-    hasOpenAIKey
-  ) {
-    return "Everything is lined up for a complete walk log.";
-  }
-
-  if (microphoneStatus === "granted" && hasOpenAIKey) {
-    return "Recording is ready. Health is the only optional missing piece.";
-  }
-
-  if (microphoneStatus === "denied") {
-    return "Microphone still needs attention before the next walk.";
-  }
-
-  if (!hasOpenAIKey) {
-    return "Recording can work, but transcription still needs a key.";
-  }
-
-  return "Finish setup once, then leave this screen alone.";
-}
-
 const styles = StyleSheet.create({
-  heroPanel: {
-    gap: spacing.md,
-  },
-  heroEyebrow: {
-    color: colors.muted,
-    fontSize: 11,
-    letterSpacing: 1,
-    fontFamily: "Courier",
-    textTransform: "uppercase",
-  },
-  heroTitle: {
-    color: colors.text,
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: "300",
-    letterSpacing: -0.6,
-  },
-  heroBody: {
-    color: colors.muted,
-    lineHeight: 22,
-  },
-  summaryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-  },
-  summaryChip: {
-    minWidth: 104,
-    gap: spacing.xxs,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    borderRadius: 16,
-    backgroundColor: colors.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  summaryLabel: {
-    color: colors.muted,
-    fontSize: 11,
-    letterSpacing: 0.9,
-    fontFamily: "Courier",
-    textTransform: "uppercase",
-  },
   groupPanel: {
     gap: 0,
     paddingVertical: layout.panelPadding,

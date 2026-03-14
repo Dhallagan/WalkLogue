@@ -1,4 +1,4 @@
-import { PropsWithChildren } from "react";
+import { PropsWithChildren, type ReactNode } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -100,12 +100,16 @@ export function PaperRecordButton({
   label,
   mode = "record",
   style,
+  leadingAccessory,
+  trailingAccessory,
   disabled,
   ...props
 }: PressableProps & {
   label: string;
   mode?: "record" | "stop";
   style?: ViewStyle;
+  leadingAccessory?: ReactNode;
+  trailingAccessory?: ReactNode;
 }) {
   return (
     <Pressable
@@ -118,13 +122,17 @@ export function PaperRecordButton({
         style,
       ]}
     >
-      <View style={[styles.recordOuter, mode === "stop" && styles.recordOuterStop]}>
-        <View
-          style={[
-            styles.recordInner,
-            mode === "stop" ? styles.recordInnerStop : styles.recordInnerRecord,
-          ]}
-        />
+      <View style={styles.recordTopRow}>
+        <View style={styles.recordAccessorySlot}>{leadingAccessory}</View>
+        <View style={[styles.recordOuter, mode === "stop" && styles.recordOuterStop]}>
+          <View
+            style={[
+              styles.recordInner,
+              mode === "stop" ? styles.recordInnerStop : styles.recordInnerRecord,
+            ]}
+          />
+        </View>
+        <View style={styles.recordAccessorySlot}>{trailingAccessory}</View>
       </View>
       <Text style={styles.recordLabel}>{label}</Text>
     </Pressable>
@@ -301,6 +309,17 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 4,
   },
+  recordTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  recordAccessorySlot: {
+    width: 50,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   recordButtonDisabled: {
     opacity: 0.55,
   },
@@ -328,6 +347,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 23,
+    backgroundColor: colors.record,
   },
   recordInnerStop: {
     width: 32,

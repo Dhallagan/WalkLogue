@@ -1,14 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import Constants from "expo-constants";
-import {
-  AVAudioSessionCategory,
-  AVAudioSessionCategoryOptions,
-  AVAudioSessionMode,
-  ExpoSpeechRecognitionModule,
-  addSpeechRecognitionListener,
-  type ExpoSpeechRecognitionErrorEvent,
-  type ExpoSpeechRecognitionResultEvent,
-} from "expo-speech-recognition";
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from "expo-av";
+
+import { transcribeAudioFile } from "../transcription/openai";
 
 type SessionSnapshot = {
   transcript: string;
@@ -21,161 +15,201 @@ export function useWalkCapture() {
   const [transcript, setTranscript] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<Date | null>(null);
+  const [meterLevel, setMeterLevel] = useState(0);
 
-  const finalChunksRef = useRef<string[]>([]);
-  const partialChunkRef = useRef("");
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const isSimulatorSpeechFallback = detectSimulatorSpeechFallback();
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const startedAtRef = useRef<Date | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const transcriptionAbortRef = useRef<AbortController | null>(null);
+  const isSimulatorRecordingFallback = detectSimulatorRecordingFallback();
 
   useEffect(() => {
-    if (isSimulatorSpeechFallback) {
-      return;
-    }
-
-    const resultSubscription = addSpeechRecognitionListener(
-      "result",
-      handleResultEvent,
-    );
-    const errorSubscription = addSpeechRecognitionListener(
-      "error",
-      handleErrorEvent,
-    );
-
     return () => {
-      resultSubscription.remove();
-      errorSubscription.remove();
-      void ExpoSpeechRecognitionModule.abort();
-      clearElapsedTimer();
+      void reset();
     };
-  }, [isSimulatorSpeechFallback]);
+  }, []);
 
   async function start() {
+    if (isRecording || isTranscribing) {
+      return;
+    }
+
     setErrorMessage(null);
+    setTranscript("");
+    setMeterLevel(0);
 
-    if (!startedAt) {
-      setStartedAt(new Date());
-    }
+    const sessionStart = new Date();
+    startedAtRef.current = sessionStart;
+    setStartedAt(sessionStart);
+    setElapsedSeconds(0);
 
-    if (!intervalRef.current) {
-      intervalRef.current = setInterval(() => {
-        setElapsedSeconds((current) => current + 1);
-      }, 1000);
-    }
-
-    setIsPaused(false);
+    startElapsedTimer();
     setIsRecording(true);
 
-    if (isSimulatorSpeechFallback) {
-      setTranscript(
-        "Simulator mode: speech capture is disabled here. Use a physical iPhone to test live transcription.",
-      );
+    if (isSimulatorRecordingFallback) {
       return;
     }
 
-    ExpoSpeechRecognitionModule.start({
-      lang: "en-US",
-      interimResults: true,
-      continuous: true,
-      addsPunctuation: true,
-      iosTaskHint: "dictation",
-      iosCategory: {
-        category: AVAudioSessionCategory.playAndRecord,
-        categoryOptions: [
-          AVAudioSessionCategoryOptions.defaultToSpeaker,
-          AVAudioSessionCategoryOptions.allowBluetooth,
-        ],
-        mode: AVAudioSessionMode.measurement,
-      },
-    });
-  }
-
-  async function pause() {
-    if (!isRecording) {
-      return;
-    }
-
-    if (isSimulatorSpeechFallback) {
-      setIsRecording(false);
-      setIsPaused(true);
+    if (!process.env.EXPO_PUBLIC_OPENAI_API_KEY) {
       clearElapsedTimer();
-      return;
+      setIsRecording(false);
+      startedAtRef.current = null;
+      setStartedAt(null);
+      throw new Error("Missing EXPO_PUBLIC_OPENAI_API_KEY for OpenAI transcription.");
     }
 
-    ExpoSpeechRecognitionModule.stop();
-    await waitForRecognizerToStop();
-    setIsRecording(false);
-    setIsPaused(true);
-    clearElapsedTimer();
-  }
+    const permission = await Audio.requestPermissionsAsync();
 
-  async function resume() {
-    await start();
+    if (!permission.granted) {
+      clearElapsedTimer();
+      setIsRecording(false);
+      startedAtRef.current = null;
+      setStartedAt(null);
+      throw new Error("Microphone permission is required to record a walk.");
+    }
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: true,
+      interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+      interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    });
+
+    const { recording } = await Audio.Recording.createAsync(
+      Audio.RecordingOptionsPresets.HIGH_QUALITY,
+      handleRecordingStatusUpdate,
+      250,
+    );
+
+    recordingRef.current = recording;
   }
 
   async function finish(): Promise<SessionSnapshot> {
-    if (isRecording && !isSimulatorSpeechFallback) {
-      ExpoSpeechRecognitionModule.stop();
-      await waitForRecognizerToStop();
-    }
+    const sessionStart = startedAtRef.current ?? new Date();
+    const endedAt = new Date();
 
-    clearElapsedTimer();
     setIsRecording(false);
-    setIsPaused(false);
+    setIsTranscribing(true);
+    clearElapsedTimer();
+    setMeterLevel(0);
 
-    const endTime = new Date();
-    const sessionStart = startedAt ?? new Date(endTime.getTime() - elapsedSeconds * 1000);
-    const combinedTranscript = isSimulatorSpeechFallback
-      ? transcript
-      : buildTranscript(finalChunksRef.current, partialChunkRef.current);
+    try {
+      if (isSimulatorRecordingFallback) {
+        const transcriptText =
+          "Simulator mode: use a physical iPhone to test background audio capture and Whisper transcription.";
 
-    return {
-      transcript: combinedTranscript.trim(),
-      startedAt: sessionStart,
-      endedAt: endTime,
-      durationSec: elapsedSeconds,
-    };
+        setTranscript(transcriptText);
+        return {
+          transcript: transcriptText,
+          startedAt: sessionStart,
+          endedAt,
+          durationSec: calculateDurationSec(sessionStart, endedAt),
+        };
+      }
+
+      const recording = recordingRef.current;
+
+      if (!recording) {
+        throw new Error("Recording session was not available.");
+      }
+
+      await recording.stopAndUnloadAsync();
+      const audioUri = recording.getURI();
+      recordingRef.current = null;
+
+      if (!audioUri) {
+        throw new Error("Recorded audio file was not available.");
+      }
+
+      const abortController = new AbortController();
+      transcriptionAbortRef.current = abortController;
+      const transcriptText = await transcribeAudioFile(audioUri, abortController.signal);
+      const normalizedTranscript =
+        transcriptText.trim() || "No speech was detected during this walk.";
+
+      setTranscript(normalizedTranscript);
+
+      return {
+        transcript: normalizedTranscript,
+        startedAt: sessionStart,
+        endedAt,
+        durationSec: calculateDurationSec(sessionStart, endedAt),
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not finish recording.";
+      setErrorMessage(message);
+      throw error;
+    } finally {
+      transcriptionAbortRef.current = null;
+      await setPlaybackAudioMode();
+      setIsTranscribing(false);
+    }
   }
 
-  function reset() {
-    finalChunksRef.current = [];
-    partialChunkRef.current = "";
+  async function reset() {
+    clearElapsedTimer();
+    setMeterLevel(0);
+    transcriptionAbortRef.current?.abort();
+    transcriptionAbortRef.current = null;
+
+    try {
+      if (recordingRef.current) {
+        await recordingRef.current.stopAndUnloadAsync();
+      }
+    } catch {
+      // Ignore cleanup failures during screen transitions.
+    } finally {
+      recordingRef.current = null;
+      startedAtRef.current = null;
+      await setPlaybackAudioMode();
+    }
+
     setTranscript("");
     setElapsedSeconds(0);
     setIsRecording(false);
-    setIsPaused(false);
+    setIsTranscribing(false);
     setStartedAt(null);
     setErrorMessage(null);
-    clearElapsedTimer();
   }
 
-  function handleResultEvent(event: ExpoSpeechRecognitionResultEvent) {
-    const candidate = event.results[0]?.transcript?.trim();
+  function handleRecordingStatusUpdate(status: Audio.RecordingStatus) {
+    const sessionStart = startedAtRef.current;
 
-    if (!candidate) {
+    if (sessionStart) {
+      setElapsedSeconds(calculateDurationSec(sessionStart, new Date()));
+    }
+
+    if (typeof status.metering === "number") {
+      setMeterLevel(normalizeMeterLevel(status.metering));
       return;
     }
 
-    if (event.isFinal) {
-      finalChunksRef.current = appendUniqueChunk(finalChunksRef.current, candidate);
-      partialChunkRef.current = "";
-    } else {
-      partialChunkRef.current = candidate;
-    }
-
-    setTranscript(buildTranscript(finalChunksRef.current, partialChunkRef.current));
+    setMeterLevel(0);
   }
 
-  function handleErrorEvent(event: ExpoSpeechRecognitionErrorEvent) {
-    if (event.error === "aborted") {
-      return;
-    }
-
-    setErrorMessage(event.message);
-    setIsRecording(false);
+  function startElapsedTimer() {
     clearElapsedTimer();
+
+    intervalRef.current = setInterval(() => {
+      const sessionStart = startedAtRef.current;
+
+      if (!sessionStart) {
+        return;
+      }
+
+      setElapsedSeconds(calculateDurationSec(sessionStart, new Date()));
+
+      if (isSimulatorRecordingFallback) {
+        setMeterLevel(simulateMeterLevel(Date.now()));
+      }
+    }, 500);
   }
 
   function clearElapsedTimer() {
@@ -185,52 +219,57 @@ export function useWalkCapture() {
     }
   }
 
+  function cancelTranscription() {
+    transcriptionAbortRef.current?.abort();
+  }
+
   return {
     transcript,
     elapsedSeconds,
     isRecording,
-    isPaused,
+    isTranscribing,
     errorMessage,
-    isSimulatorSpeechFallback,
+    meterLevel,
+    startedAt,
+    isSimulatorRecordingFallback,
     start,
-    pause,
-    resume,
     finish,
+    cancelTranscription,
     reset,
   };
 }
 
-function appendUniqueChunk(chunks: string[], chunk: string) {
-  const normalized = chunk.trim();
-
-  if (!normalized) {
-    return chunks;
-  }
-
-  if (chunks[chunks.length - 1] === normalized) {
-    return chunks;
-  }
-
-  return [...chunks, normalized];
-}
-
-function buildTranscript(chunks: string[], partial: string) {
-  return [...chunks, partial.trim()].filter(Boolean).join("\n\n");
-}
-
-async function waitForRecognizerToStop() {
-  for (let attempt = 0; attempt < 15; attempt += 1) {
-    const state = await ExpoSpeechRecognitionModule.getStateAsync();
-
-    if (state === "inactive") {
-      return;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 120));
+async function setPlaybackAudioMode() {
+  try {
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: false,
+      staysActiveInBackground: false,
+      interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
+      interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    });
+  } catch {
+    // Ignore mode reset failures during cleanup.
   }
 }
 
-function detectSimulatorSpeechFallback() {
+function calculateDurationSec(startedAt: Date, endedAt: Date) {
+  return Math.max(1, Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000));
+}
+
+function normalizeMeterLevel(value: number) {
+  const clamped = Math.max(-60, Math.min(0, value));
+  return (clamped + 60) / 60;
+}
+
+function simulateMeterLevel(timestamp: number) {
+  const wave = Math.sin(timestamp / 240) * 0.25 + Math.sin(timestamp / 110) * 0.15;
+  return Math.max(0.2, Math.min(0.85, 0.45 + wave));
+}
+
+function detectSimulatorRecordingFallback() {
   const deviceName = Constants.deviceName?.trim().toLowerCase();
   const iosModel = Constants.platform?.ios?.model?.trim().toLowerCase();
 

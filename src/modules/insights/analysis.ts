@@ -1,6 +1,16 @@
 import type { EntryListItem } from "../journal/types";
 
-const LOOKBACK_DAYS = 7;
+export type InsightTimeframe = "7d" | "30d" | "90d" | "all";
+
+export const INSIGHT_TIMEFRAMES: Array<{
+  id: InsightTimeframe;
+  label: string;
+}> = [
+  { id: "7d", label: "Week" },
+  { id: "30d", label: "Month" },
+  { id: "90d", label: "Quarter" },
+  { id: "all", label: "All" },
+];
 
 const STOP_WORDS = new Set([
   "about",
@@ -71,18 +81,14 @@ export type InsightSnapshot = {
   questions: string[];
 };
 
-export function buildInsightSnapshot(entries: EntryListItem[]): InsightSnapshot {
+export function buildInsightSnapshot(
+  entries: EntryListItem[],
+  timeframe: InsightTimeframe = "7d",
+): InsightSnapshot {
   const sortedEntries = [...entries].sort(
     (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
   );
-  const lookbackStart = new Date();
-  lookbackStart.setHours(0, 0, 0, 0);
-  lookbackStart.setDate(lookbackStart.getDate() - (LOOKBACK_DAYS - 1));
-
-  const windowEntries =
-    sortedEntries.filter((entry) => entry.createdAt >= lookbackStart) ||
-    sortedEntries.slice(0, LOOKBACK_DAYS);
-  const activeEntries = windowEntries.length > 0 ? windowEntries : sortedEntries.slice(0, 7);
+  const activeEntries = filterEntriesForTimeframe(sortedEntries, timeframe);
   const wordCounts = activeEntries.map((entry) => countWords(entry.body));
   const totalWords = wordCounts.reduce((sum, count) => sum + count, 0);
   const walkCount = activeEntries.filter((entry) => entry.source === "walk").length;
@@ -107,6 +113,27 @@ export function buildInsightSnapshot(entries: EntryListItem[]): InsightSnapshot 
     lead: buildLead(activeEntries.length, walkCount, topTopics, focusAreas),
     questions: buildQuestions(topTopics, focusAreas, strongestDay),
   };
+}
+
+export function filterEntriesForTimeframe(
+  entries: EntryListItem[],
+  timeframe: InsightTimeframe,
+) {
+  const sortedEntries = [...entries].sort(
+    (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
+  );
+
+  if (timeframe === "all") {
+    return sortedEntries;
+  }
+
+  const lookbackDays = getLookbackDays(timeframe);
+  const lookbackStart = new Date();
+  lookbackStart.setHours(0, 0, 0, 0);
+  lookbackStart.setDate(lookbackStart.getDate() - (lookbackDays - 1));
+
+  const filteredEntries = sortedEntries.filter((entry) => entry.createdAt >= lookbackStart);
+  return filteredEntries.length > 0 ? filteredEntries : sortedEntries.slice(0, lookbackDays);
 }
 
 function countWords(body: string) {
@@ -270,4 +297,16 @@ function scoreEntry(entry: EntryListItem, queryTokens: Set<string>) {
 
 function daysSince(date: Date) {
   return Math.floor((Date.now() - date.getTime()) / 86_400_000);
+}
+
+function getLookbackDays(timeframe: Exclude<InsightTimeframe, "all">) {
+  if (timeframe === "30d") {
+    return 30;
+  }
+
+  if (timeframe === "90d") {
+    return 90;
+  }
+
+  return 7;
 }

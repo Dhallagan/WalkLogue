@@ -7,12 +7,18 @@ import Healthkit, {
 
 import { formatDayKey } from "../../lib/date";
 
+export type HealthPermissionStatus =
+  | "granted"
+  | "denied"
+  | "undetermined"
+  | "unavailable";
+
 export async function getHealthPermissionStatus() {
   try {
     const available = await Healthkit.isHealthDataAvailable();
 
     if (!available) {
-      return "unavailable" as const;
+      return "unavailable" as const satisfies HealthPermissionStatus;
     }
 
     const status = await Healthkit.authorizationStatusFor(
@@ -20,16 +26,16 @@ export async function getHealthPermissionStatus() {
     );
 
     if (status === HKAuthorizationStatus.sharingAuthorized) {
-      return "granted" as const;
+      return "granted" as const satisfies HealthPermissionStatus;
     }
 
     if (status === HKAuthorizationStatus.sharingDenied) {
-      return "denied" as const;
+      return "denied" as const satisfies HealthPermissionStatus;
     }
 
-    return "undetermined" as const;
+    return "undetermined" as const satisfies HealthPermissionStatus;
   } catch {
-    return "unavailable" as const;
+    return "unavailable" as const satisfies HealthPermissionStatus;
   }
 }
 
@@ -51,6 +57,22 @@ export async function requestHealthPermission() {
 
 export async function getTodayStepCount() {
   return getStepCountForWindow(startOfDay(new Date()), new Date());
+}
+
+export async function getTodayStepSnapshot() {
+  const permission = await getHealthPermissionStatus();
+
+  if (permission !== "granted") {
+    return {
+      permission,
+      totalSteps: 0,
+    };
+  }
+
+  return {
+    permission,
+    totalSteps: await getTodayStepCount(),
+  };
 }
 
 export async function getStepCountForWindow(startedAt: Date, endedAt: Date) {

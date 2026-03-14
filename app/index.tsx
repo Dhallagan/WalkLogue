@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
   type NativeSyntheticEvent,
@@ -79,17 +77,20 @@ export default function RootPagerScreen() {
         </View>
       </ScrollView>
 
-      {activePage === "home" ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityHint="Opens the Insights screen"
-          style={styles.peekRail}
-          onPress={() => navigateTo("insights")}
-        >
-          <Text style={styles.peekLabel}>Insights</Text>
-          <Text style={styles.peekHint}>Swipe right</Text>
-        </Pressable>
-      ) : null}
+      <View pointerEvents="none" style={styles.pageIndicator}>
+        <View
+          style={[
+            styles.pageDot,
+            activePage === "insights" && styles.pageDotActive,
+          ]}
+        />
+        <View
+          style={[
+            styles.pageDot,
+            activePage === "home" && styles.pageDotActive,
+          ]}
+        />
+      </View>
     </View>
   );
 }
@@ -102,33 +103,22 @@ const styles = StyleSheet.create({
   page: {
     flex: 1,
   },
-  peekRail: {
+  pageIndicator: {
     position: "absolute",
+    top: 18,
     left: 0,
-    top: 92,
-    paddingLeft: 10,
-    paddingRight: 12,
-    paddingVertical: 10,
-    borderTopRightRadius: 18,
-    borderBottomRightRadius: 18,
-    backgroundColor: colors.accentSoft,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    shadowColor: colors.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
   },
-  peekLabel: {
-    color: colors.text,
-    fontSize: 13,
-    letterSpacing: 0.8,
-    fontFamily: "Courier",
-    textTransform: "uppercase",
+  pageDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: "#D8D1C5",
   },
-  peekHint: {
-    color: colors.muted,
-    fontSize: 11,
-    marginTop: 3,
+  pageDotActive: {
+    backgroundColor: colors.accent,
   },
 });

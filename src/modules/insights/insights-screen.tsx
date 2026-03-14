@@ -1,26 +1,29 @@
-import { useCallback, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { useFocusEffect } from "expo-router";
-import { useSQLiteContext } from "expo-sqlite";
-
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Panel,
-  Pill,
-  PrimaryButton,
-  SecondaryButton,
-  Screen,
-  ScreenHeader,
-  SectionLabel,
-} from "../../components/ui";
+  ActionSheetIOS,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useSQLiteContext } from "expo-sqlite";
+import { SafeAreaView } from "react-native-safe-area-context";
+
 import { listEntries } from "../journal/repository";
-import { buildInsightSnapshot, type InsightSnapshot } from "./analysis";
+import type { EntryListItem } from "../journal/types";
 import {
   answerInsightQuestion,
   generateReflection,
   hasInsightsConfig,
+  peekCachedReflection,
 } from "./openai";
-import type { EntryListItem } from "../journal/types";
-import { colors, spacing } from "../../theme";
+import { colors, layout, spacing } from "../../theme";
 
 type ChatMessage = {
   id: string;
@@ -34,15 +37,16 @@ export default function InsightsScreen({
   onNavigateHome: () => void;
 }) {
   const db = useSQLiteContext();
-  const [snapshot, setSnapshot] = useState<InsightSnapshot | null>(null);
+  const router = useRouter();
   const [entries, setEntries] = useState<EntryListItem[]>([]);
-  const [reflection, setReflection] = useState("");
-  const [reflectionError, setReflectionError] = useState<string | null>(null);
-  const [isRefreshingReflection, setIsRefreshingReflection] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
+  const [profilePreview, setProfilePreview] = useState("");
+  const [profilePreviewError, setProfilePreviewError] = useState<string | null>(null);
+  const [isLoadingProfilePreview, setIsLoadingProfilePreview] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [thinkingFrame, setThinkingFrame] = useState(0);
   const aiReady = hasInsightsConfig();
 
   useFocusEffect(
@@ -55,68 +59,65 @@ export default function InsightsScreen({
         }
 
         setEntries(loadedEntries);
-        setSnapshot(buildInsightSnapshot(loadedEntries));
 
-        if (aiReady && loadedEntries.length > 0) {
-          void loadReflection(loadedEntries, () => isActive);
+        if (aiReady && loadedEntries.length > 0 && messages.length === 0) {
+          const cachedPreview = peekCachedReflection(loadedEntries, "30d");
+
+          if (cachedPreview) {
+            setProfilePreviewError(null);
+            setProfilePreview(cachedPreview);
+            setIsLoadingProfilePreview(false);
+            return;
+          }
+
+          void loadProfilePreview(loadedEntries, () => isActive);
           return;
         }
 
         if (loadedEntries.length === 0) {
-          setReflection("");
-          setReflectionError(null);
+          setProfilePreview("");
+          setProfilePreviewError(null);
         }
       });
 
       return () => {
         isActive = false;
       };
-    }, [aiReady, db]),
+    }, [aiReady, db, messages.length]),
   );
 
-  const suggestionPills = useMemo(
-    () => snapshot?.questions.slice(0, 3) ?? [],
-    [snapshot],
+  const starterPrompts = useMemo(
+    () => [
+      "What feels most alive in my journal right now?",
+      "What am I circling emotionally these days?",
+      "What seems top of mind beneath the surface?",
+    ],
+    [],
   );
 
-  async function loadReflection(
-    loadedEntries: EntryListItem[],
-    isActive = () => true,
-  ) {
-    setIsRefreshingReflection(true);
-    setReflectionError(null);
-
-    try {
-      const nextReflection = await generateReflection(loadedEntries);
-
-      if (!isActive()) {
-        return;
-      }
-
-      setReflection(nextReflection);
-    } catch (error) {
-      if (!isActive()) {
-        return;
-      }
-
-      const message =
-        error instanceof Error ? error.message : "Could not load reflection.";
-      setReflectionError(message);
-      setReflection("");
-    } finally {
-      if (isActive()) {
-        setIsRefreshingReflection(false);
-      }
+  useEffect(() => {
+    if (!isSending) {
+      setThinkingFrame(0);
+      return;
     }
-  }
+
+    const intervalId = setInterval(() => {
+      setThinkingFrame((currentFrame) => (currentFrame + 1) % 3);
+    }, 360);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [isSending]);
 
   async function handleSendQuestion(nextQuestion?: string) {
     const question = (nextQuestion ?? chatDraft).trim();
 
-    if (!question || isSending || entries.length === 0) {
+    if (!question || isSending || entries.length === 0 || !aiReady) {
       return;
     }
 
+    const priorMessages = messages.map(({ role, content }) => ({ role, content }));
     const nextUserMessage: ChatMessage = {
       id: `user_${Date.now()}`,
       role: "user",
@@ -131,8 +132,9 @@ export default function InsightsScreen({
     try {
       const assistantReply = await answerInsightQuestion(
         entries,
-        messages.map(({ role, content }) => ({ role, content })),
+        priorMessages,
         question,
+        "all",
       );
 
       setMessages((currentMessages) => [
@@ -156,296 +158,330 @@ export default function InsightsScreen({
     }
   }
 
+  async function loadProfilePreview(
+    loadedEntries: EntryListItem[],
+    isActive = () => true,
+  ) {
+    const cachedPreview = peekCachedReflection(loadedEntries, "30d");
+
+    if (cachedPreview) {
+      setProfilePreviewError(null);
+      setProfilePreview(cachedPreview);
+      setIsLoadingProfilePreview(false);
+      return;
+    }
+
+    setIsLoadingProfilePreview(true);
+    setProfilePreviewError(null);
+
+    try {
+      const nextPreview = await generateReflection(loadedEntries, "30d");
+
+      if (!isActive()) {
+        return;
+      }
+
+      setProfilePreview(nextPreview);
+    } catch (error) {
+      if (!isActive()) {
+        return;
+      }
+
+      const message =
+        error instanceof Error ? error.message : "Could not load profile insight.";
+      setProfilePreviewError(message);
+      setProfilePreview("");
+    } finally {
+      if (isActive()) {
+        setIsLoadingProfilePreview(false);
+      }
+    }
+  }
+
+  const handleOpenOverflow = useCallback(() => {
+    const actions = [
+      { label: "Profile", onPress: () => router.push("/profile") },
+      { label: "Settings", onPress: () => router.push("/settings") },
+    ];
+
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: [...actions.map((action) => action.label), "Cancel"],
+          cancelButtonIndex: actions.length,
+        },
+        (selectedIndex) => {
+          if (selectedIndex >= 0 && selectedIndex < actions.length) {
+            actions[selectedIndex]?.onPress();
+          }
+        },
+      );
+      return;
+    }
+
+    Alert.alert("More", undefined, [
+      ...actions.map((action) => ({
+        text: action.label,
+        onPress: action.onPress,
+      })),
+      {
+        text: "Cancel",
+        style: "cancel",
+      },
+    ]);
+  }, [router]);
+
   return (
-    <Screen scroll style={styles.screenContent}>
-      <ScreenHeader
-        eyebrow="Pattern Deck"
-        title="Insights"
-        description="This side is where the app starts reflecting your life back to you instead of just storing transcripts."
-        trailing={
-          <Pressable hitSlop={10} onPress={onNavigateHome}>
-            <Text style={styles.homeLink}>Home</Text>
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>Ask Your Journal</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="More options"
+            hitSlop={10}
+            onPress={handleOpenOverflow}
+            style={({ pressed }) => [
+              styles.menuButton,
+              pressed && styles.menuButtonPressed,
+            ]}
+          >
+            <Text style={styles.menuButtonText}>...</Text>
           </Pressable>
-        }
-      />
+        </View>
 
-      <Panel tone="soft">
-        <Text style={styles.heroEyebrow}>Reflection</Text>
-        <Text style={styles.heroTitle}>What stands out right now</Text>
-        {entries.length === 0 ? (
-          <Text style={styles.heroBody}>
-            Add a few entries and this side can start reflecting them back to you.
-          </Text>
-        ) : !aiReady ? (
-          <Text style={styles.heroBody}>
-            Add `EXPO_PUBLIC_OPENAI_API_KEY` to enable the LLM reflection and chat.
-          </Text>
-        ) : isRefreshingReflection ? (
-          <Text style={styles.heroBody}>Writing your reflection...</Text>
-        ) : reflectionError ? (
-          <Text style={styles.heroBody}>{reflectionError}</Text>
-        ) : (
-          <Text style={styles.heroBody}>{reflection}</Text>
-        )}
-        {aiReady && entries.length > 0 ? (
-          <SecondaryButton onPress={() => void loadReflection(entries)}>
-            Refresh Reflection
-          </SecondaryButton>
-        ) : null}
-      </Panel>
-
-      <SectionLabel>Volume</SectionLabel>
-      <View style={styles.metricGrid}>
-        <MetricCard
-          label="Entries"
-          value={snapshot ? `${snapshot.activeEntryCount}` : "--"}
-          note="Recent window"
-        />
-        <MetricCard
-          label="Walks"
-          value={snapshot ? `${snapshot.walkCount}` : "--"}
-          note="Voice captures"
-        />
-        <MetricCard
-          label="Words"
-          value={snapshot ? `${snapshot.totalWords}` : "--"}
-          note="Recent text"
-        />
-        <MetricCard
-          label="Steps"
-          value={snapshot ? `${snapshot.totalSteps}` : "--"}
-          note="Walk sessions"
-        />
-      </View>
-
-      <SectionLabel>Patterns</SectionLabel>
-      <Panel style={styles.panel}>
-        <PatternRow
-          label="Average entry size"
-          value={snapshot ? `${snapshot.averageWords} words` : "--"}
-        />
-        <PatternRow
-          label="Most active day"
-          value={snapshot?.strongestDay ?? "No data yet"}
-        />
-        <PatternRow
-          label="Recurring topics"
-          value={snapshot?.topTopics.join(", ") || "No repeated topics yet"}
-        />
-        <PatternRow
-          label="Strongest lenses"
-          value={snapshot?.focusAreas.join(", ") || "No clear lens yet"}
-        />
-      </Panel>
-
-      <SectionLabel>Prompts</SectionLabel>
-      <Panel style={styles.panel}>
-        {suggestionPills.length ? (
-          suggestionPills.map((question) => (
-            <Pressable
-              key={question}
-              style={styles.questionRow}
-              onPress={() => void handleSendQuestion(question)}
-            >
-              <Pill>{`Ask`}</Pill>
-              <Text style={styles.questionText}>{question}</Text>
-            </Pressable>
-          ))
-        ) : (
-          <Text style={styles.emptyText}>
-            Add a few entries and this side can start generating reflection prompts.
-          </Text>
-        )}
-      </Panel>
-
-      <SectionLabel>Chat</SectionLabel>
-      <Panel style={styles.panel}>
-        {!aiReady ? (
-          <Text style={styles.emptyText}>
-            Chat needs an OpenAI key configured through env. Keep in mind that a
-            client-side Expo key is not secret, so production should use a proxy.
-          </Text>
-        ) : entries.length === 0 ? (
-          <Text style={styles.emptyText}>
-            Chat becomes useful once there are entries to reason over.
-          </Text>
-        ) : (
-          <>
-            {messages.length === 0 ? (
-              <Text style={styles.emptyText}>
-                Ask about business, relationships, health, repeated themes, or what
-                seems to be taking your attention.
+        <ScrollView
+          style={styles.scrollBody}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {entries.length > 0 ? (
+            <View style={styles.previewCard}>
+              <Text style={styles.previewEyebrow}>Top Of Mind</Text>
+              <Text numberOfLines={5} style={styles.previewBody}>
+                {!aiReady
+                  ? "Open Profile to see the journal overview."
+                  : isLoadingProfilePreview
+                    ? "Reading the past month..."
+                    : profilePreviewError
+                      ? profilePreviewError
+                      : profilePreview}
               </Text>
-            ) : (
-              <View style={styles.chatThread}>
-                {messages.map((message) => (
-                  <View
-                    key={message.id}
-                    style={[
-                      styles.chatBubble,
-                      message.role === "user"
-                        ? styles.userBubble
-                        : styles.assistantBubble,
-                    ]}
+              {aiReady && !isLoadingProfilePreview && !profilePreviewError ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => router.push("/profile")}
+                  style={({ pressed }) => [
+                    styles.previewLink,
+                    pressed && styles.previewLinkPressed,
+                  ]}
+                >
+                  <Text style={styles.previewLinkText}>Read more</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+
+          {messages.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={styles.starterList}>
+                {starterPrompts.map((prompt) => (
+                  <Pressable
+                    key={prompt}
+                    style={styles.promptChip}
+                    onPress={() => void handleSendQuestion(prompt)}
                   >
-                    <Text style={styles.chatRole}>
-                      {message.role === "user" ? "You" : "Insight"}
-                    </Text>
-                    <Text style={styles.chatText}>{message.content}</Text>
-                  </View>
+                    <Text style={styles.promptText}>{prompt}</Text>
+                  </Pressable>
                 ))}
               </View>
-            )}
-
-            <View style={styles.composer}>
-              <TextInput
-                value={chatDraft}
-                onChangeText={setChatDraft}
-                placeholder="Ask what your entries say about your week."
-                placeholderTextColor={colors.muted}
-                multiline
-                style={styles.chatInput}
-              />
-              <PrimaryButton
-                onPress={() => void handleSendQuestion()}
-                style={styles.sendButton}
-              >
-                {isSending ? "Thinking..." : "Send"}
-              </PrimaryButton>
             </View>
+          ) : (
+            <View style={styles.chatThread}>
+              {messages.map((message) => (
+                <View
+                  key={message.id}
+                  style={[
+                    styles.chatBubble,
+                    message.role === "user"
+                      ? styles.userBubble
+                      : styles.assistantBubble,
+                  ]}
+                >
+                  <Text style={styles.chatRole}>
+                    {message.role === "user" ? "You" : "Journal"}
+                  </Text>
+                  <Text style={styles.chatText}>{message.content}</Text>
+                </View>
+              ))}
+              {isSending ? (
+                <View style={[styles.chatBubble, styles.assistantBubble, styles.thinkingBubble]}>
+                  <Text style={styles.chatRole}>Journal</Text>
+                  <Text style={styles.thinkingText}>
+                    Thinking{".".repeat(thinkingFrame + 1)}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          )}
 
-            {chatError ? <Text style={styles.errorText}>{chatError}</Text> : null}
-          </>
-        )}
-      </Panel>
-    </Screen>
-  );
-}
+          {!aiReady ? (
+            <Text style={styles.emptyText}>
+              Chat needs an OpenAI key configured through env. Production should move
+              this behind a proxy.
+            </Text>
+          ) : null}
 
-function MetricCard({
-  label,
-  value,
-  note,
-}: {
-  label: string;
-  value: string;
-  note: string;
-}) {
-  return (
-    <Panel style={styles.metricCard}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricNote}>{note}</Text>
-    </Panel>
-  );
-}
+          {entries.length === 0 ? (
+            <Text style={styles.emptyText}>
+              Add a few entries first. Then this screen can answer questions about
+              what feels latest, repeated, unresolved, or most important.
+            </Text>
+          ) : null}
 
-function PatternRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <View style={styles.patternRow}>
-      <Text style={styles.patternLabel}>{label}</Text>
-      <Text style={styles.patternValue}>{value}</Text>
-    </View>
+          {chatError ? <Text style={styles.errorText}>{chatError}</Text> : null}
+        </ScrollView>
+
+        <View style={styles.composerShell}>
+          <View style={styles.composer}>
+            <TextInput
+              value={chatDraft}
+              onChangeText={setChatDraft}
+              placeholder="Ask your journal anything."
+              placeholderTextColor={colors.muted}
+              multiline
+              style={styles.chatInput}
+            />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Send message"
+              disabled={isSending}
+              onPress={() => void handleSendQuestion()}
+              style={({ pressed }) => [
+                styles.sendIconButton,
+                pressed && !isSending && styles.sendIconButtonPressed,
+                isSending && styles.sendIconButtonDisabled,
+              ]}
+            >
+              <Text style={styles.sendIcon}>{isSending ? "…" : "↑"}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screenContent: {
-    paddingLeft: 24,
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.background,
   },
-  homeLink: {
-    color: colors.muted,
-    fontSize: 11,
-    letterSpacing: 1,
-    fontFamily: "Courier",
-    textTransform: "uppercase",
-    paddingTop: 4,
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+    paddingHorizontal: layout.screenPadding,
+    paddingTop: layout.screenTop,
   },
-  heroEyebrow: {
-    color: colors.muted,
-    fontSize: 11,
-    letterSpacing: 1,
-    fontFamily: "Courier",
-    textTransform: "uppercase",
-  },
-  heroTitle: {
-    color: colors.text,
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: "300",
-    letterSpacing: -0.8,
-  },
-  heroBody: {
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  metricGrid: {
+  headerRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-  },
-  metricCard: {
-    width: "48%",
-    minWidth: 150,
-  },
-  metricLabel: {
-    color: colors.muted,
-    fontSize: 11,
-    letterSpacing: 1,
-    fontFamily: "Courier",
-    textTransform: "uppercase",
-  },
-  metricValue: {
-    color: colors.text,
-    fontSize: 28,
-    lineHeight: 32,
-    fontWeight: "300",
-  },
-  metricNote: {
-    color: colors.muted,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  panel: {
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: spacing.md,
   },
-  patternRow: {
-    gap: 4,
+  title: {
+    fontSize: 30,
+    lineHeight: 36,
+    color: colors.text,
+    fontWeight: "300",
+    letterSpacing: -1.1,
+    marginTop: 2,
   },
-  patternLabel: {
+  menuButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  menuButtonPressed: {
+    backgroundColor: colors.accentSoft,
+  },
+  menuButtonText: {
+    color: colors.muted,
+    fontSize: 20,
+    lineHeight: 20,
+    letterSpacing: 1.2,
+    marginTop: -6,
+  },
+  scrollBody: {
+    flex: 1,
+    marginTop: spacing.md,
+  },
+  scrollContent: {
+    paddingBottom: spacing.lg,
+    gap: spacing.md,
+  },
+  emptyState: {
+    gap: spacing.md,
+  },
+  previewCard: {
+    gap: spacing.sm,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 22,
+    backgroundColor: colors.accentSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  previewEyebrow: {
     color: colors.muted,
     fontSize: 11,
     letterSpacing: 1,
     fontFamily: "Courier",
     textTransform: "uppercase",
   },
-  patternValue: {
-    color: colors.text,
-    fontSize: 17,
-    lineHeight: 24,
-  },
-  questionRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.sm,
-  },
-  questionText: {
-    flex: 1,
+  previewBody: {
     color: colors.text,
     fontSize: 15,
     lineHeight: 22,
   },
-  emptyText: {
+  previewLink: {
+    alignSelf: "flex-start",
+    marginTop: 2,
+    paddingVertical: 2,
+  },
+  previewLinkPressed: {
+    opacity: 0.6,
+  },
+  previewLinkText: {
     color: colors.muted,
+    fontSize: 12,
+    letterSpacing: 0.9,
+    fontFamily: "Courier",
+    textTransform: "uppercase",
+  },
+  starterList: {
+    gap: spacing.xs,
+  },
+  promptChip: {
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  promptText: {
+    color: colors.text,
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 20,
   },
   chatThread: {
     gap: spacing.sm,
@@ -458,12 +494,16 @@ const styles = StyleSheet.create({
   },
   userBubble: {
     backgroundColor: colors.accentSoft,
-    alignSelf: "flex-start",
+    alignSelf: "flex-end",
   },
   assistantBubble: {
     backgroundColor: colors.surface,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
+  },
+  thinkingBubble: {
+    minHeight: 74,
+    justifyContent: "center",
   },
   chatRole: {
     color: colors.muted,
@@ -477,29 +517,71 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
-  composer: {
-    gap: spacing.sm,
-  },
-  chatInput: {
-    minHeight: 100,
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: colors.text,
+  thinkingText: {
+    color: colors.muted,
     fontSize: 15,
     lineHeight: 22,
-    textAlignVertical: "top",
   },
-  sendButton: {
-    alignSelf: "flex-start",
-    minWidth: 120,
+  emptyText: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
   },
   errorText: {
     color: colors.danger,
     fontSize: 14,
     lineHeight: 20,
+  },
+  composerShell: {
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.sm,
+    backgroundColor: colors.background,
+  },
+  composer: {
+    position: "relative",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 74,
+    borderRadius: 24,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  chatInput: {
+    minHeight: 40,
+    maxHeight: 120,
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 22,
+    paddingHorizontal: 0,
+    paddingTop: 4,
+    paddingBottom: 28,
+    paddingRight: 52,
+    textAlignVertical: "top",
+  },
+  sendIconButton: {
+    position: "absolute",
+    right: 10,
+    bottom: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.accent,
+    flexShrink: 0,
+  },
+  sendIconButtonPressed: {
+    opacity: 0.88,
+  },
+  sendIconButtonDisabled: {
+    opacity: 0.6,
+  },
+  sendIcon: {
+    color: "#FFF8F2",
+    fontSize: 20,
+    lineHeight: 20,
+    fontWeight: "600",
+    marginTop: -2,
   },
 });

@@ -1,24 +1,20 @@
 import { Linking } from "react-native";
+import { Audio } from "expo-av";
 
-import { ExpoSpeechRecognitionModule } from "expo-speech-recognition";
-
-export async function ensureSpeechPermissions() {
-  const response = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+export async function ensureRecordingPermissions() {
+  const response = await Audio.requestPermissionsAsync();
   return response.granted;
 }
 
-export async function getSpeechPermissionStatus() {
+export async function getRecordingPermissionStatus() {
   try {
-    const [microphone, speech] = await Promise.all([
-      ExpoSpeechRecognitionModule.getMicrophonePermissionsAsync(),
-      ExpoSpeechRecognitionModule.getSpeechRecognizerPermissionsAsync(),
-    ]);
+    const microphone = await Audio.getPermissionsAsync();
 
-    if (microphone.granted && speech.granted) {
+    if (microphone.granted) {
       return "granted" as const;
     }
 
-    if (!microphone.canAskAgain || !speech.canAskAgain) {
+    if (!microphone.canAskAgain) {
       return "denied" as const;
     }
 

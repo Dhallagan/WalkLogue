@@ -1,5 +1,14 @@
 import { startTransition, useCallback, useMemo, useRef, useState } from "react";
-import { Alert, Pressable, SectionList, StyleSheet, Text, View } from "react-native";
+import {
+  ActionSheetIOS,
+  Alert,
+  Platform,
+  Pressable,
+  SectionList,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -99,6 +108,39 @@ export default function HomeScreen() {
   const todayLabel = formatLongDay(new Date());
   const stepsLabel = formatStepsLabel(stepPermission, todaySteps);
 
+  const handleOpenMenu = useCallback(() => {
+    const actions = [
+      { label: "Profile", onPress: () => router.push("/profile") },
+      { label: "Settings", onPress: () => router.push("/settings") },
+    ];
+
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: [...actions.map((action) => action.label), "Cancel"],
+          cancelButtonIndex: actions.length,
+        },
+        (selectedIndex) => {
+          if (selectedIndex >= 0 && selectedIndex < actions.length) {
+            actions[selectedIndex]?.onPress();
+          }
+        },
+      );
+      return;
+    }
+
+    Alert.alert("More", undefined, [
+      ...actions.map((action) => ({
+        text: action.label,
+        onPress: action.onPress,
+      })),
+      {
+        text: "Cancel",
+        style: "cancel",
+      },
+    ]);
+  }, [router]);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
       <View style={styles.container}>
@@ -108,8 +150,17 @@ export default function HomeScreen() {
             <Text style={styles.dateText}>{todayLabel}</Text>
             <Text style={styles.stepsLabel}>{stepsLabel}</Text>
           </View>
-          <Pressable hitSlop={10} onPress={() => router.push("/settings")}>
-            <Text style={styles.settingsText}>Settings</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="More options"
+            hitSlop={10}
+            onPress={handleOpenMenu}
+            style={({ pressed }) => [
+              styles.menuButton,
+              pressed && styles.menuButtonPressed,
+            ]}
+          >
+            <Text style={styles.menuButtonText}>...</Text>
           </Pressable>
         </View>
 
@@ -231,14 +282,27 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     fontFamily: "Courier",
   },
-  settingsText: {
+  menuButton: {
+    minWidth: 42,
+    height: 42,
+    marginTop: 14,
+    marginRight: 18,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  menuButtonPressed: {
+    backgroundColor: colors.accentSoft,
+  },
+  menuButtonText: {
     color: colors.muted,
-    fontSize: 11,
-    letterSpacing: 1,
-    fontFamily: "Courier",
-    paddingTop: 18,
-    paddingRight: 18,
-    textTransform: "uppercase",
+    fontSize: 20,
+    lineHeight: 20,
+    marginTop: -6,
+    letterSpacing: 1.2,
   },
   list: {
     flex: 1,

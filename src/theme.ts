@@ -7,6 +7,7 @@ export const colors = {
   muted: "#8E8982",
   accent: "#4F4A44",
   accentSoft: "#F6F2EA",
+  record: "#D22630",
   success: "#6A7467",
   danger: "#8E6760",
   shadow: "rgba(70, 64, 58, 0.05)",

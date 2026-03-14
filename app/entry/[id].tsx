@@ -22,6 +22,9 @@ import {
 import type { EntryDetail } from "../../src/modules/journal/types";
 import { colors } from "../../src/theme";
 
+const ENTRY_RULE_GAP = 32;
+const ENTRY_RULE_OFFSET = 40;
+
 export default function EntryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useSQLiteContext();
@@ -103,14 +106,14 @@ export default function EntryDetailScreen() {
 
   if (!entry) {
     return (
-      <Screen>
+      <Screen includeTopInset>
         <Text style={styles.loadingText}>Loading entry…</Text>
       </Screen>
     );
   }
 
   return (
-    <Screen scroll>
+    <Screen scroll includeTopInset>
       <View style={styles.headerRow}>
         <View style={styles.header}>
           <Text style={styles.dateText}>{formatCompactDate(entry.createdAt)}</Text>
@@ -121,7 +124,12 @@ export default function EntryDetailScreen() {
         </Pressable>
       </View>
 
-      <PaperSheet style={styles.sheet} contentStyle={styles.sheetContent}>
+      <PaperSheet
+        style={styles.sheet}
+        contentStyle={styles.sheetContent}
+        lineGap={ENTRY_RULE_GAP}
+        lineOffset={ENTRY_RULE_OFFSET}
+      >
         <TextInput
           value={body}
           onChangeText={(nextValue) => {
@@ -186,14 +194,16 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sheetContent: {
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingTop: 8,
+    paddingBottom: 12,
   },
   bodyInput: {
     minHeight: 472,
     color: colors.text,
     fontSize: 17,
-    lineHeight: 28,
+    lineHeight: ENTRY_RULE_GAP,
     paddingTop: 0,
+    paddingBottom: 0,
+    paddingHorizontal: 0,
   },
 });

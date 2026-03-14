@@ -21,11 +21,19 @@ import {
 export function Screen({
   children,
   scroll = false,
+  includeTopInset = false,
   style,
-}: PropsWithChildren<{ scroll?: boolean; style?: ViewStyle }>) {
+}: PropsWithChildren<{
+  scroll?: boolean;
+  includeTopInset?: boolean;
+  style?: ViewStyle;
+}>) {
   if (scroll) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView
+        style={styles.safeArea}
+        edges={includeTopInset ? ["top", "left", "right", "bottom"] : ["left", "right", "bottom"]}
+      >
         <ScrollView
           contentContainerStyle={[styles.scrollContent, style]}
           keyboardShouldPersistTaps="handled"
@@ -37,7 +45,10 @@ export function Screen({
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView
+      style={styles.safeArea}
+      edges={includeTopInset ? ["top", "left", "right", "bottom"] : ["left", "right", "bottom"]}
+    >
       <View style={[styles.content, style]}>{children}</View>
     </SafeAreaView>
   );

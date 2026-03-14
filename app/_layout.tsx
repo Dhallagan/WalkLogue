@@ -19,6 +19,7 @@ export default function RootLayout() {
         screenOptions={{
           headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.text,
+          headerBackButtonDisplayMode: "minimal",
           headerShadowVisible: false,
           headerTitleStyle: {
             fontSize: 17,
@@ -33,6 +34,7 @@ export default function RootLayout() {
           options={{ headerShown: false, presentation: "card" }}
         />
         <Stack.Screen name="entry/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="profile" options={{ title: "Profile" }} />
         <Stack.Screen name="settings" options={{ title: "Settings" }} />
       </Stack>
     </SQLiteProvider>

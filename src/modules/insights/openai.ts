@@ -2,13 +2,17 @@ import { formatCompactDate, formatDuration } from "../../lib/date";
 import type { EntryListItem } from "../journal/types";
 import {
   buildInsightSnapshot,
+  filterEntriesForTimeframe,
   selectEntriesForQuestion,
+  type InsightTimeframe,
   type InsightSnapshot,
 } from "./analysis";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_INSIGHTS_MODEL = "gpt-5-mini";
 const MAX_CONTEXT_ENTRIES = 8;
+const reflectionCache = new Map<string, string>();
+const reflectionInFlight = new Map<string, Promise<string>>();
 
 type InsightChatMessage = {
   role: "user" | "assistant";
@@ -29,15 +33,35 @@ type OpenAIResponsesResponse = {
   };
 };
 
-export async function generateReflection(entries: EntryListItem[]) {
+export async function generateReflection(
+  entries: EntryListItem[],
+  timeframe: InsightTimeframe,
+) {
   const { apiKey, model } = getInsightsConfig();
-  const snapshot = buildInsightSnapshot(entries);
-  const contextEntries = entries.slice(0, MAX_CONTEXT_ENTRIES);
+  const { cacheKey, contextEntries, snapshot } = getReflectionRequestContext(
+    entries,
+    timeframe,
+    model,
+  );
+
+  const cachedReflection = reflectionCache.get(cacheKey);
+
+  if (cachedReflection) {
+    return cachedReflection;
+  }
+
+  const inFlightReflection = reflectionInFlight.get(cacheKey);
+
+  if (inFlightReflection) {
+    return inFlightReflection;
+  }
+
   const prompt = [
     "Write a concise reflection blurb for the user's journal app.",
     "Ground every statement in the provided entries.",
     "Keep it to 3 short paragraphs max.",
     "Focus on recurring themes, energy, tension, and what seems to matter most right now.",
+    `The requested time window is ${formatTimeframeLabel(timeframe)}.`,
     "Do not mention missing data, prompt design, or that you are an AI.",
     "",
     buildSnapshotContext(snapshot),
@@ -46,25 +70,54 @@ export async function generateReflection(entries: EntryListItem[]) {
     buildEntryContext(contextEntries),
   ].join("\n");
 
-  return createInsightsResponse({
+  const reflectionPromise = createInsightsResponse({
     apiKey,
     model,
     instructions:
       "You are the reflection layer for a personal journaling app. Be specific, observant, and emotionally intelligent. Never invent events. If evidence is weak, use cautious language.",
     input: prompt,
-  });
+  })
+    .then((reflection) => {
+      reflectionCache.set(cacheKey, reflection);
+      reflectionInFlight.delete(cacheKey);
+      return reflection;
+    })
+    .catch((error) => {
+      reflectionInFlight.delete(cacheKey);
+      throw error;
+    });
+
+  reflectionInFlight.set(cacheKey, reflectionPromise);
+
+  return reflectionPromise;
+}
+
+export function peekCachedReflection(
+  entries: EntryListItem[],
+  timeframe: InsightTimeframe,
+) {
+  if (!hasInsightsConfig()) {
+    return null;
+  }
+
+  const { model } = getInsightsConfig();
+  const { cacheKey } = getReflectionRequestContext(entries, timeframe, model);
+  return reflectionCache.get(cacheKey) ?? null;
 }
 
 export async function answerInsightQuestion(
   entries: EntryListItem[],
   messages: InsightChatMessage[],
   question: string,
+  timeframe: InsightTimeframe,
 ) {
   const { apiKey, model } = getInsightsConfig();
-  const snapshot = buildInsightSnapshot(entries);
-  const relevantEntries = selectEntriesForQuestion(entries, question, 6);
+  const filteredEntries = filterEntriesForTimeframe(entries, timeframe);
+  const relevantEntries = selectEntriesForQuestion(filteredEntries, question, 6);
   const fallbackEntries =
-    relevantEntries.length > 0 ? relevantEntries : entries.slice(0, MAX_CONTEXT_ENTRIES);
+    relevantEntries.length > 0
+      ? relevantEntries
+      : filteredEntries.slice(0, MAX_CONTEXT_ENTRIES);
   const conversation = [...messages, { role: "user" as const, content: question }]
     .slice(-8)
     .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
@@ -73,11 +126,12 @@ export async function answerInsightQuestion(
   const prompt = [
     "Answer the user's question about their own journal entries.",
     "Use only the supplied entries and conversation context.",
-    "Be direct, useful, and grounded.",
+    "Be grounded, but write with warmth and inwardness.",
+    "Focus on meaning, feeling, tension, and what seems alive beneath the surface.",
+    "Do not default to metrics, counts, or analytical framing unless the user asks for them.",
     "If the evidence is mixed, say so.",
     "When relevant, mention the specific day or entry timing.",
-    "",
-    buildSnapshotContext(snapshot),
+    `The requested time window is ${formatTimeframeLabel(timeframe)}.`,
     "",
     "Relevant entries:",
     buildEntryContext(fallbackEntries),
@@ -90,7 +144,7 @@ export async function answerInsightQuestion(
     apiKey,
     model,
     instructions:
-      "You are answering questions about the user's life from their own journal. Stay inside the evidence. Prefer synthesis over quoting. If the entries do not support a conclusion, say what is missing.",
+      "You are answering questions about the user's life from their own journal. Sound like a thoughtful, soulful reader rather than an analyst. Stay inside the evidence. Prefer synthesis over quoting. Highlight emotional undercurrents, motives, and tensions when the entries support them. Do not lead with counts, summaries, or dashboards unless asked. If the entries do not support a conclusion, say what is missing.",
     input: prompt,
   });
 }
@@ -209,4 +263,57 @@ function buildEntryContext(entries: EntryListItem[]) {
       return `${header}\n${body}`;
     })
     .join("\n\n");
+}
+
+function formatTimeframeLabel(timeframe: InsightTimeframe) {
+  if (timeframe === "30d") {
+    return "the last 30 days";
+  }
+
+  if (timeframe === "90d") {
+    return "the last 90 days";
+  }
+
+  if (timeframe === "all") {
+    return "all available entries";
+  }
+
+  return "the last 7 days";
+}
+
+function getReflectionRequestContext(
+  entries: EntryListItem[],
+  timeframe: InsightTimeframe,
+  model: string,
+) {
+  const filteredEntries = filterEntriesForTimeframe(entries, timeframe);
+  const snapshot = buildInsightSnapshot(entries, timeframe);
+  const contextEntries = filteredEntries.slice(0, MAX_CONTEXT_ENTRIES);
+  const cacheKey = buildReflectionCacheKey(model, timeframe, contextEntries);
+
+  return {
+    cacheKey,
+    contextEntries,
+    snapshot,
+  };
+}
+
+function buildReflectionCacheKey(
+  model: string,
+  timeframe: InsightTimeframe,
+  entries: EntryListItem[],
+) {
+  const entrySignature = entries
+    .map((entry) =>
+      [
+        entry.id,
+        entry.createdAt.toISOString(),
+        entry.body,
+        entry.stepCount ?? "",
+        entry.durationSec ?? "",
+      ].join("|"),
+    )
+    .join("||");
+
+  return `${model}::${timeframe}::${entrySignature}`;
 }

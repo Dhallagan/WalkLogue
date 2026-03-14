@@ -1,62 +1,128 @@
-import { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
+  PaperActionButton,
   PaperRecordButton,
   PaperSheet,
 } from "../src/components/notebook";
 import { formatCompactDate, formatElapsed } from "../src/lib/date";
+import { useWalkCapture } from "../src/modules/capture/useWalkCapture";
 import { createWalkEntry } from "../src/modules/journal/repository";
+import {
+  getHealthPermissionStatus,
+  getStepCountForWindow,
+  getTodayStepCount,
+  type HealthPermissionStatus,
+} from "../src/modules/steps/health";
 import { colors } from "../src/theme";
-
-const DEFAULT_TRANSCRIPT =
-  "Walked through the neighborhood and thought about how simple this should feel. This is where the transcript for the day would appear.";
 
 export default function WalkScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [body, setBody] = useState(DEFAULT_TRANSCRIPT);
-  const [startedAt] = useState(() => new Date());
+  const hasStartedRef = useRef(false);
+  const baselineTodayStepsRef = useRef(0);
+  const stepsPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stepPermissionRef = useRef<HealthPermissionStatus>("undetermined");
+  const {
+    transcript,
+    elapsedSeconds,
+    isRecording,
+    isTranscribing,
+    errorMessage,
+    meterLevel,
+    isSimulatorRecordingFallback,
+    start,
+    finish,
+    cancelTranscription,
+    reset,
+  } = useWalkCapture();
+  const [displayStepCount, setDisplayStepCount] = useState(0);
+  const [stepPermission, setStepPermission] =
+    useState<HealthPermissionStatus>("undetermined");
 
   useEffect(() => {
-    if (isPaused) {
+    if (hasStartedRef.current) {
       return;
     }
 
-    const intervalId = setInterval(() => {
-      setElapsedSeconds((current) => current + 1);
-    }, 1000);
+    hasStartedRef.current = true;
+
+    void start().catch((error) => {
+      const message =
+        error instanceof Error ? error.message : "Could not start recording.";
+
+      Alert.alert("Could not start walk", message, [
+        {
+          text: "OK",
+          onPress: () => {
+            router.replace("/");
+          },
+        },
+      ]);
+    });
+    void initializeStepTracking();
 
     return () => {
-      clearInterval(intervalId);
+      clearStepPolling();
+      void reset();
     };
-  }, [isPaused]);
+  }, []);
 
-  const stepCount = useMemo(
-    () => Math.max(412, Math.round(elapsedSeconds * 1.9)),
-    [elapsedSeconds],
+  const bars = useMemo(
+    () =>
+      [0.5, 0.85, 1.2, 1.45, 1.2, 0.9, 0.6].map((factor, index) => ({
+        id: `${index}`,
+        height: 16 + meterLevel * 42 * factor,
+      })),
+    [meterLevel],
   );
+  const leadingBars = bars.slice(0, 3);
+  const trailingBars = bars.slice(3);
+
+  const recorderStatusText = useMemo(() => {
+    if (isTranscribing) {
+      return "Transcribing with Whisper...";
+    }
+
+    if (isSimulatorRecordingFallback) {
+      return "Simulator mode. Use a physical iPhone to test background recording and Whisper transcription.";
+    }
+
+    if (stepPermission === "granted") {
+      return "Recording in the background. Lock your screen and keep talking.";
+    }
+
+    if (stepPermission === "denied") {
+      return "Recording in the background. Health access is off, so this walk will save with 0 steps.";
+    }
+
+    if (stepPermission === "unavailable") {
+      return "Recording in the background. Health data is unavailable on this device.";
+    }
+
+    return "Recording in the background. Allow Health access to save walk steps.";
+  }, [isSimulatorRecordingFallback, isTranscribing, stepPermission]);
 
   async function handleFinish() {
-    if (isSaving) {
+    if (isTranscribing) {
       return;
     }
 
-    setIsSaving(true);
-
     try {
-      const endedAt = new Date();
+      const session = await finish();
+      const stepCount =
+        stepPermissionRef.current === "granted"
+          ? await getStepCountForWindow(session.startedAt, session.endedAt)
+          : 0;
       const entry = await createWalkEntry(db, {
-        body: body.trim() || "Prototype walk entry",
-        startedAt,
-        endedAt,
-        durationSec: elapsedSeconds,
+        body: session.transcript,
+        startedAt: session.startedAt,
+        endedAt: session.endedAt,
+        durationSec: session.durationSec,
         stepCount,
       });
 
@@ -67,9 +133,89 @@ export default function WalkScreen() {
 
       router.replace("/");
     } catch (error) {
+      if (isAbortError(error)) {
+        router.replace("/");
+        return;
+      }
+
       console.error("Could not save walk entry", error);
-      Alert.alert("Could not save mock walk", "Try again from the home screen.");
-      setIsSaving(false);
+      const message =
+        error instanceof Error ? error.message : "Try again from the home screen.";
+
+      Alert.alert("Could not save walk", message);
+    }
+  }
+
+  function handleCancelTranscription() {
+    Alert.alert(
+      "Discard this walk?",
+      "Cancelling transcription will discard this unsaved walk.",
+      [
+        {
+          text: "Keep",
+          style: "cancel",
+        },
+        {
+          text: "Discard",
+          style: "destructive",
+          onPress: () => {
+            cancelTranscription();
+          },
+        },
+      ],
+    );
+  }
+
+  async function initializeStepTracking() {
+    try {
+      const permission = await getHealthPermissionStatus();
+      stepPermissionRef.current = permission;
+      setStepPermission(permission);
+
+      if (permission !== "granted") {
+        setDisplayStepCount(0);
+        return;
+      }
+
+      const startingTotal = await getTodayStepCount();
+      baselineTodayStepsRef.current = startingTotal;
+      setDisplayStepCount(0);
+      startStepPolling();
+    } catch {
+      stepPermissionRef.current = "unavailable";
+      setStepPermission("unavailable");
+      setDisplayStepCount(0);
+    }
+  }
+
+  function startStepPolling() {
+    clearStepPolling();
+
+    stepsPollRef.current = setInterval(() => {
+      void refreshWalkSteps();
+    }, 15000);
+  }
+
+  function clearStepPolling() {
+    if (stepsPollRef.current) {
+      clearInterval(stepsPollRef.current);
+      stepsPollRef.current = null;
+    }
+  }
+
+  async function refreshWalkSteps() {
+    try {
+      if (stepPermissionRef.current !== "granted") {
+        setDisplayStepCount(0);
+        return;
+      }
+
+      const currentTotal = await getTodayStepCount();
+      setDisplayStepCount(Math.max(0, currentTotal - baselineTodayStepsRef.current));
+    } catch {
+      stepPermissionRef.current = "unavailable";
+      setStepPermission("unavailable");
+      setDisplayStepCount(0);
     }
   }
 
@@ -78,39 +224,76 @@ export default function WalkScreen() {
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title}>Today</Text>
-          <View style={styles.metaRow}>
-            <Text style={styles.dateText}>{formatCompactDate(new Date())}</Text>
-            <Pressable onPress={() => setIsPaused((current) => !current)}>
-              <Text style={styles.pauseText}>{isPaused ? "Resume" : "Pause"}</Text>
-            </Pressable>
-          </View>
-          <Text style={styles.statusLine}>
-            {formatElapsed(elapsedSeconds)}  •  {stepCount.toLocaleString()} steps
-          </Text>
+          <Text style={styles.dateText}>{formatCompactDate(new Date())}</Text>
         </View>
 
-        <PaperSheet style={styles.sheet} contentStyle={styles.sheetContent}>
-          <TextInput
-            multiline
-            textAlignVertical="top"
-            value={body}
-            onChangeText={setBody}
-            style={styles.noteInput}
-            placeholder="Your walk transcript will appear here."
-            placeholderTextColor={colors.muted}
-          />
+        <View style={styles.metricsRow}>
+          <Text style={styles.timerText}>{formatElapsed(elapsedSeconds)}</Text>
+          <View style={styles.metricDivider} />
+          <View style={styles.stepsBlock}>
+            <Text style={styles.metricLabel}>Steps</Text>
+            <Text style={styles.stepsText}>{displayStepCount.toLocaleString()}</Text>
+          </View>
+        </View>
+
+        <PaperSheet style={styles.sheet} contentStyle={styles.sheetContent} lineCount={11}>
+          <Text style={styles.sheetStatus}>{recorderStatusText}</Text>
+
+          <Text style={[styles.transcriptText, !transcript && styles.transcriptPlaceholder]}>
+            {transcript ||
+              errorMessage ||
+              "Your words will appear here after you end the walk."}
+          </Text>
         </PaperSheet>
 
         <View style={styles.bottomAction}>
-          <PaperRecordButton
-            label={isSaving ? "Saving..." : "End Walk"}
-            mode="stop"
-            disabled={isSaving}
-            onPress={() => void handleFinish()}
-          />
+          {isTranscribing ? (
+            <PaperActionButton
+              style={styles.cancelButton}
+              textStyle={styles.cancelButtonText}
+              onPress={handleCancelTranscription}
+            >
+              Cancel Transcription
+            </PaperActionButton>
+          ) : (
+            <PaperRecordButton
+              label="End Walk"
+              mode="stop"
+              disabled={!isRecording}
+              leadingAccessory={
+                <View style={styles.controlWaveCluster}>
+                  {leadingBars.map((bar) => (
+                    <View
+                      key={bar.id}
+                      style={[styles.controlWaveBar, { height: bar.height }]}
+                    />
+                  ))}
+                </View>
+              }
+              trailingAccessory={
+                <View style={styles.controlWaveCluster}>
+                  {trailingBars.map((bar) => (
+                    <View
+                      key={bar.id}
+                      style={[styles.controlWaveBar, { height: bar.height }]}
+                    />
+                  ))}
+                </View>
+              }
+              onPress={() => void handleFinish()}
+            />
+          )}
         </View>
       </View>
     </SafeAreaView>
+  );
+}
+
+function isAbortError(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" ||
+      error.message.toLowerCase().includes("abort"))
   );
 }
 
@@ -125,8 +308,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 18,
     paddingTop: 10,
-    paddingBottom: 6,
-    gap: 4,
+    gap: 2,
   },
   title: {
     color: colors.text,
@@ -135,12 +317,6 @@ const styles = StyleSheet.create({
     fontWeight: "300",
     letterSpacing: -1.2,
   },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
   dateText: {
     color: colors.text,
     fontSize: 20,
@@ -148,42 +324,101 @@ const styles = StyleSheet.create({
     fontWeight: "300",
     letterSpacing: -0.6,
   },
-  pauseText: {
-    color: colors.text,
-    fontSize: 13,
-    letterSpacing: 0.8,
-    fontFamily: "Courier",
-  },
-  statusLine: {
-    color: colors.muted,
-    fontSize: 12,
-    letterSpacing: 1,
-    fontFamily: "Courier",
+  metricsRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 16,
     paddingHorizontal: 18,
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingTop: 18,
+  },
+  timerText: {
+    color: colors.text,
+    fontSize: 42,
+    lineHeight: 46,
+    fontWeight: "300",
+    letterSpacing: -1.8,
+  },
+  metricDivider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: "stretch",
+    backgroundColor: colors.rule,
+    marginBottom: 4,
+  },
+  stepsBlock: {
+    paddingBottom: 3,
+  },
+  metricLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    letterSpacing: 1.1,
+    fontFamily: "Courier",
+    textTransform: "uppercase",
+  },
+  stepsText: {
+    color: colors.text,
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: "300",
+    letterSpacing: -0.5,
   },
   sheet: {
     flex: 1,
     marginHorizontal: 12,
+    marginTop: 6,
     marginBottom: 10,
   },
   sheetContent: {
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingTop: 18,
+    paddingBottom: 18,
   },
-  noteInput: {
-    flex: 1,
+  sheetStatus: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 16,
+    letterSpacing: 1,
+    fontFamily: "Courier",
+    textTransform: "uppercase",
+    paddingBottom: 22,
+  },
+  transcriptText: {
     color: colors.text,
-    fontSize: 17,
-    lineHeight: 28,
-    paddingTop: 0,
+    fontSize: 18,
+    lineHeight: 30,
+    flex: 1,
+  },
+  transcriptPlaceholder: {
+    color: colors.muted,
   },
   bottomAction: {
     alignItems: "center",
     justifyContent: "center",
+    minHeight: 114,
     paddingTop: 12,
     paddingBottom: 18,
     backgroundColor: colors.background,
+  },
+  controlWaveCluster: {
+    height: 54,
+    width: 50,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 5,
+  },
+  controlWaveBar: {
+    width: 6,
+    borderRadius: 999,
+    backgroundColor: colors.accent,
+    opacity: 0.82,
+  },
+  cancelButton: {
+    minWidth: 220,
+    backgroundColor: colors.surface,
+  },
+  cancelButtonText: {
+    fontFamily: "Courier",
+    fontSize: 13,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
 });
