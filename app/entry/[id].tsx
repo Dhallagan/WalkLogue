@@ -12,6 +12,7 @@ import { PaperSheet } from "../../src/components/notebook";
 import { Screen } from "../../src/components/ui";
 import {
   formatCompactDate,
+  formatDuration,
   formatEntryMeta,
 } from "../../src/lib/date";
 import {
@@ -118,6 +119,9 @@ export default function EntryDetailScreen() {
         <View style={styles.header}>
           <Text style={styles.dateText}>{formatCompactDate(entry.createdAt)}</Text>
           <Text style={styles.metaText}>{formatEntryMeta(entry.createdAt)}</Text>
+          {entry.source === "walk" ? (
+            <Text style={styles.walkMetaText}>{formatWalkMeta(entry)}</Text>
+          ) : null}
         </View>
         <Pressable hitSlop={10} onPress={() => void handleDone()}>
           <Text style={styles.doneText}>Done</Text>
@@ -152,6 +156,20 @@ export default function EntryDetailScreen() {
   );
 }
 
+function formatWalkMeta(entry: EntryDetail) {
+  const parts: string[] = [];
+
+  if (typeof entry.stepCount === "number") {
+    parts.push(`${entry.stepCount.toLocaleString()} steps`);
+  }
+
+  if (typeof entry.durationSec === "number") {
+    parts.push(formatDuration(entry.durationSec));
+  }
+
+  return parts.join("  |  ");
+}
+
 const styles = StyleSheet.create({
   loadingText: {
     color: colors.text,
@@ -181,6 +199,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     letterSpacing: 1,
     fontFamily: "Courier",
+  },
+  walkMetaText: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    letterSpacing: 0.8,
+    fontFamily: "Courier",
+    paddingTop: 2,
   },
   doneText: {
     color: colors.text,

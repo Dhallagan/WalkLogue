@@ -8,7 +8,7 @@ import {
   View,
 } from "react-native";
 
-import { formatEntryTime } from "../lib/date";
+import { formatDuration, formatEntryTime } from "../lib/date";
 import type { EntryListItem } from "../modules/journal/types";
 import { colors } from "../theme";
 import { PaperRow } from "./notebook";
@@ -157,12 +157,29 @@ export function EntrySwipeRow({
             <Text numberOfLines={2} style={styles.entryPreview}>
               {entry.body || "Empty entry"}
             </Text>
+            {entry.source === "walk" ? (
+              <Text style={styles.entrySummary}>{formatWalkSummary(entry)}</Text>
+            ) : null}
             <Text style={styles.entryMeta}>{formatEntryTime(entry.createdAt)}</Text>
           </PaperRow>
         </Pressable>
       </Animated.View>
     </View>
   );
+}
+
+function formatWalkSummary(entry: EntryListItem) {
+  const parts: string[] = [];
+
+  if (typeof entry.stepCount === "number") {
+    parts.push(`${entry.stepCount.toLocaleString()} steps`);
+  }
+
+  if (typeof entry.durationSec === "number") {
+    parts.push(formatDuration(entry.durationSec));
+  }
+
+  return parts.join("  |  ");
 }
 
 const styles = StyleSheet.create({
@@ -208,5 +225,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     fontFamily: "Courier",
     marginTop: 6,
+  },
+  entrySummary: {
+    color: colors.muted,
+    fontSize: 11,
+    letterSpacing: 0.6,
+    fontFamily: "Courier",
+    marginTop: 8,
   },
 });

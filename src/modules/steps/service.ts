@@ -9,6 +9,7 @@ import {
   getStoredValue,
   setStoredValue,
 } from "./store";
+import { isFitbitClientConfigured } from "./fitbit-config";
 
 const STEP_SOURCE_KEY = "walklog.steps.source";
 
@@ -127,28 +128,7 @@ export async function disconnectFitbitSource() {
 
 export async function getTodayStepSnapshot(): Promise<StepSnapshot> {
   const source = await getResolvedStepSource();
-  const permission = await getStepSourceStatus(source);
-
-  if (permission !== "granted") {
-    return {
-      permission,
-      totalSteps: 0,
-      source,
-      sourceLabel: getStepSourceLabel(source),
-    };
-  }
-
-  const totalSteps =
-    source === "apple-health"
-      ? await getTodayHealthStepCount()
-      : await getTodayFitbitSteps();
-
-  return {
-    permission,
-    totalSteps,
-    source,
-    sourceLabel: getStepSourceLabel(source),
-  };
+  return getStepSourceSnapshot(source);
 }
 
 export async function getWindowStepSnapshot(
@@ -189,7 +169,34 @@ export function getStepPollingIntervalMs(source: StepSource) {
 }
 
 export function isFitbitStepSourceConfigured() {
-  return Boolean(process.env.EXPO_PUBLIC_FITBIT_CLIENT_ID?.trim());
+  return isFitbitClientConfigured();
+}
+
+export async function getStepSourceSnapshot(
+  source: StepSource,
+): Promise<StepSnapshot> {
+  const permission = await getStepSourceStatus(source);
+
+  if (permission !== "granted") {
+    return {
+      permission,
+      totalSteps: 0,
+      source,
+      sourceLabel: getStepSourceLabel(source),
+    };
+  }
+
+  const totalSteps =
+    source === "apple-health"
+      ? await getTodayHealthStepCount()
+      : await getTodayFitbitSteps();
+
+  return {
+    permission,
+    totalSteps,
+    source,
+    sourceLabel: getStepSourceLabel(source),
+  };
 }
 
 function isStepSource(value: string | null): value is StepSource {

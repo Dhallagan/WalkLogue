@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { Alert } from "react-native";
 import { StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 
@@ -18,6 +19,7 @@ import {
 import {
   disconnectFitbitSource,
   getResolvedStepSource,
+  getStepSourceSnapshot,
   getStepSourceLabel,
   getStepSourceStatus,
   isFitbitStepSourceConfigured,
@@ -43,6 +45,8 @@ export default function SettingsScreen() {
     useState<StepPermissionStatus>("undetermined");
   const [selectedStepSource, setSelectedStepSource] =
     useState<StepSource>("apple-health");
+  const [healthPreviewSteps, setHealthPreviewSteps] = useState<number | null>(null);
+  const [fitbitPreviewSteps, setFitbitPreviewSteps] = useState<number | null>(null);
   const hasOpenAIKey = Boolean(process.env.EXPO_PUBLIC_OPENAI_API_KEY);
   const fitbitConfigured = isFitbitStepSourceConfigured();
 
@@ -63,6 +67,18 @@ export default function SettingsScreen() {
     setHealthStatus(nextHealthStatus);
     setFitbitStatus(nextFitbitStatus);
     setSelectedStepSource(nextSelectedStepSource);
+
+    const [healthSnapshot, fitbitSnapshot] = await Promise.all([
+      getStepSourceSnapshot("apple-health"),
+      getStepSourceSnapshot("fitbit"),
+    ]);
+
+    setHealthPreviewSteps(
+      healthSnapshot.permission === "granted" ? healthSnapshot.totalSteps : null,
+    );
+    setFitbitPreviewSteps(
+      fitbitSnapshot.permission === "granted" ? fitbitSnapshot.totalSteps : null,
+    );
   }, []);
 
   useFocusEffect(
@@ -100,6 +116,13 @@ export default function SettingsScreen() {
     await loadPermissionState();
   }
 
+  function handleExplainFitbitSetup() {
+    Alert.alert(
+      "Fitbit Setup",
+      "Restart the dev app if Fitbit still shows Setup. This build now includes your client ID and redirect URI.",
+    );
+  }
+
   return (
     <Screen scroll>
       <SectionLabel>Permissions</SectionLabel>
@@ -111,19 +134,23 @@ export default function SettingsScreen() {
           status={formatPermissionLabel(microphoneStatus)}
           description="Required to record a walk. If access is denied, WalkLog returns you home instead of trying to start capture."
           note="Grant this once and the rest of the recording flow stays simple."
-          action={
+          actions={
             microphoneStatus === "undetermined"
-              ? {
-                  label: "Allow Microphone",
-                  kind: "primary",
-                  onPress: () => void handleAllowMicrophone(),
-                }
+              ? [
+                  {
+                    label: "Allow Microphone",
+                    kind: "primary",
+                    onPress: () => void handleAllowMicrophone(),
+                  },
+                ]
               : microphoneStatus === "denied"
-                ? {
-                    label: "Open Settings",
-                    kind: "secondary",
-                    onPress: () => void openAppSettings(),
-                  }
+                ? [
+                    {
+                      label: "Open Settings",
+                      kind: "secondary",
+                      onPress: () => void openAppSettings(),
+                    },
+                  ]
                 : undefined
           }
         />
@@ -137,22 +164,55 @@ export default function SettingsScreen() {
           tone={healthTone}
           status={formatPermissionLabel(healthStatus)}
           description="Adds today&apos;s step count to Home and stores step totals with each saved walk."
-          note={getAppleHealthNote(healthStatus, selectedStepSource)}
-          action={
+          note={getAppleHealthNote(
+            healthStatus,
+            selectedStepSource,
+            healthPreviewSteps,
+          )}
+          actions={
             healthStatus === "undetermined"
-              ? {
-                  label: "Allow Health Access",
-                  kind: "primary",
-                  onPress: () => void handleAllowHealth(),
-                }
+              ? [
+                  {
+                    label: "Allow Health Access",
+                    kind: "primary",
+                    onPress: () => void handleAllowHealth(),
+                  },
+                ]
+              : healthStatus === "granted" &&
+                  selectedStepSource === "apple-health"
+                ? [
+                    {
+                      label: "Refresh Steps",
+                      kind: "secondary",
+                      onPress: () => void loadPermissionState(),
+                    },
+                    {
+                      label: "App Settings",
+                      kind: "secondary",
+                      onPress: () => void openAppSettings(),
+                    },
+                  ]
               : healthStatus === "granted" &&
                   selectedStepSource !== "apple-health"
-                ? {
-                    label: `Use ${getStepSourceLabel("apple-health")}`,
-                    kind: "secondary",
-                    onPress: () => void handleUseStepSource("apple-health"),
-                  }
-                : undefined
+                ? [
+                    {
+                      label: `Use ${getStepSourceLabel("apple-health")}`,
+                      kind: "secondary",
+                      onPress: () => void handleUseStepSource("apple-health"),
+                    },
+                    {
+                      label: "Refresh Steps",
+                      kind: "secondary",
+                      onPress: () => void loadPermissionState(),
+                    },
+                  ]
+                : [
+                    {
+                      label: "App Settings",
+                      kind: "secondary",
+                      onPress: () => void openAppSettings(),
+                    },
+                  ]
           }
         />
 
@@ -164,14 +224,21 @@ export default function SettingsScreen() {
           tone={getPillTone(fitbitStatus)}
           status={formatFitbitLabel(fitbitStatus, fitbitConfigured)}
           description="Uses your Fitbit account as the source for today&apos;s steps and saved walk totals."
-          note={getFitbitNote(fitbitStatus, selectedStepSource, fitbitConfigured)}
-          action={getFitbitAction({
+          note={getFitbitNote(
+            fitbitStatus,
+            selectedStepSource,
+            fitbitConfigured,
+            fitbitPreviewSteps,
+          )}
+          actions={getFitbitActions({
             fitbitConfigured,
             fitbitStatus,
             selectedStepSource,
+            onExplainSetup: () => handleExplainFitbitSetup(),
             onConnect: () => void handleConnectFitbit(),
             onDisconnect: () => void handleDisconnectFitbit(),
             onUseFitbit: () => void handleUseStepSource("fitbit"),
+            onRefresh: () => void loadPermissionState(),
           })}
         />
       </Panel>
@@ -208,7 +275,7 @@ function SettingBlock({
   status,
   description,
   note,
-  action,
+  actions,
 }: {
   eyebrow: string;
   title: string;
@@ -216,7 +283,7 @@ function SettingBlock({
   status: string;
   description: string;
   note?: string;
-  action?: SettingAction;
+  actions?: SettingAction[];
 }) {
   return (
     <View style={styles.settingBlock}>
@@ -227,11 +294,28 @@ function SettingBlock({
       </View>
       <Text style={styles.permissionBody}>{description}</Text>
       {note ? <Text style={styles.permissionNote}>{note}</Text> : null}
-      {action?.kind === "primary" ? (
-        <PrimaryButton onPress={action.onPress}>{action.label}</PrimaryButton>
-      ) : null}
-      {action?.kind === "secondary" ? (
-        <SecondaryButton onPress={action.onPress}>{action.label}</SecondaryButton>
+      {actions?.length ? (
+        <View style={styles.actionRow}>
+          {actions.map((action) =>
+            action.kind === "primary" ? (
+              <PrimaryButton
+                key={action.label}
+                onPress={action.onPress}
+                style={styles.actionButton}
+              >
+                {action.label}
+              </PrimaryButton>
+            ) : (
+              <SecondaryButton
+                key={action.label}
+                onPress={action.onPress}
+                style={styles.actionButton}
+              >
+                {action.label}
+              </SecondaryButton>
+            ),
+          )}
+        </View>
       ) : null}
     </View>
   );
@@ -281,16 +365,25 @@ function formatFitbitLabel(
 function getAppleHealthNote(
   status: StepPermissionStatus,
   selectedStepSource: StepSource,
+  previewSteps: number | null,
 ) {
   if (status === "unavailable") {
     return "Apple Health only works on supported Apple devices.";
   }
 
   if (selectedStepSource === "apple-health" && status === "granted") {
+    if (previewSteps !== null) {
+      return `Connected and selected. Apple Health reports ${previewSteps.toLocaleString()} steps today.`;
+    }
+
     return "Currently used for Home and Walk steps. This is the fastest on-device option.";
   }
 
   if (status === "granted") {
+    if (previewSteps !== null) {
+      return `Connected. Apple Health reports ${previewSteps.toLocaleString()} steps today and is ready to use.`;
+    }
+
     return "Ready to use if you want on-device, near real-time step updates.";
   }
 
@@ -301,16 +394,25 @@ function getFitbitNote(
   status: StepPermissionStatus,
   selectedStepSource: StepSource,
   fitbitConfigured: boolean,
+  previewSteps: number | null,
 ) {
   if (!fitbitConfigured) {
-    return "Set EXPO_PUBLIC_FITBIT_CLIENT_ID and register walklog://fitbit as a Fitbit redirect URI.";
+    return "Fitbit setup is bundled into this build. If Connect is still missing, refresh or restart the dev app once.";
   }
 
   if (selectedStepSource === "fitbit" && status === "granted") {
+    if (previewSteps !== null) {
+      return `Connected and selected. Fitbit reports ${previewSteps.toLocaleString()} steps today. Sync can lag behind live walking.`;
+    }
+
     return "Currently used for Home and Walk steps. Fitbit sync can lag behind live walking by a few minutes.";
   }
 
   if (status === "granted") {
+    if (previewSteps !== null) {
+      return `Connected. Fitbit reports ${previewSteps.toLocaleString()} steps today and is ready to use.`;
+    }
+
     return "Connected and ready. Fitbit sync can lag behind live walking by a few minutes.";
   }
 
@@ -321,46 +423,82 @@ function getFitbitNote(
   return "Connect your Fitbit account to pull steps from the Fitbit Web API.";
 }
 
-function getFitbitAction({
+function getFitbitActions({
   fitbitConfigured,
   fitbitStatus,
   selectedStepSource,
+  onExplainSetup,
   onConnect,
   onDisconnect,
   onUseFitbit,
+  onRefresh,
 }: {
   fitbitConfigured: boolean;
   fitbitStatus: StepPermissionStatus;
   selectedStepSource: StepSource;
+  onExplainSetup: () => void;
   onConnect: () => void;
   onDisconnect: () => void;
   onUseFitbit: () => void;
+  onRefresh: () => void;
 }) {
-  if (!fitbitConfigured || fitbitStatus === "unavailable") {
-    return undefined;
+  if (!fitbitConfigured) {
+    return [
+      {
+        label: "Refresh Setup",
+        kind: "secondary" as const,
+        onPress: onExplainSetup,
+      },
+    ];
+  }
+
+  if (fitbitStatus === "unavailable") {
+    return [
+      {
+        label: "Refresh Setup",
+        kind: "secondary" as const,
+        onPress: onExplainSetup,
+      },
+    ];
   }
 
   if (fitbitStatus === "undetermined") {
-    return {
-      label: "Connect Fitbit",
-      kind: "primary" as const,
-      onPress: onConnect,
-    };
+    return [
+      {
+        label: "Connect Fitbit",
+        kind: "primary" as const,
+        onPress: onConnect,
+      },
+    ];
   }
 
   if (selectedStepSource === "fitbit") {
-    return {
-      label: "Disconnect Fitbit",
-      kind: "secondary" as const,
-      onPress: onDisconnect,
-    };
+    return [
+      {
+        label: "Refresh Fitbit",
+        kind: "secondary" as const,
+        onPress: onRefresh,
+      },
+      {
+        label: "Disconnect Fitbit",
+        kind: "secondary" as const,
+        onPress: onDisconnect,
+      },
+    ];
   }
 
-  return {
-    label: "Use Fitbit",
-    kind: "secondary" as const,
-    onPress: onUseFitbit,
-  };
+  return [
+    {
+      label: "Use Fitbit",
+      kind: "secondary" as const,
+      onPress: onUseFitbit,
+    },
+    {
+      label: "Refresh Fitbit",
+      kind: "secondary" as const,
+      onPress: onRefresh,
+    },
+  ];
 }
 
 const styles = StyleSheet.create({
@@ -394,6 +532,14 @@ const styles = StyleSheet.create({
   permissionNote: {
     color: colors.muted,
     lineHeight: 21,
+  },
+  actionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  actionButton: {
+    minWidth: 148,
   },
   blockEyebrow: {
     color: colors.muted,

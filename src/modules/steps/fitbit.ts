@@ -13,6 +13,7 @@ import {
   getStoredValue,
   setStoredValue,
 } from "./store";
+import { getFitbitClientId, isFitbitClientConfigured } from "./fitbit-config";
 
 const FITBIT_DISCOVERY = {
   authorizationEndpoint: "https://www.fitbit.com/oauth2/authorize",
@@ -22,8 +23,7 @@ const FITBIT_DISCOVERY = {
 
 const FITBIT_SESSION_KEY = "walklog.fitbit.session";
 const FITBIT_SCOPES = ["activity"];
-const FITBIT_CLIENT_ID =
-  process.env.EXPO_PUBLIC_FITBIT_CLIENT_ID?.trim() ?? "";
+const FITBIT_CLIENT_ID = getFitbitClientId();
 const FITBIT_REDIRECT_URI = makeRedirectUri({
   scheme: "walklog",
   path: "fitbit",
@@ -50,7 +50,7 @@ type FitbitIntradayResponse = {
 export type FitbitPermissionStatus = "granted" | "undetermined" | "unavailable";
 
 export function isFitbitConfigured() {
-  return FITBIT_CLIENT_ID.length > 0;
+  return isFitbitClientConfigured();
 }
 
 export async function getFitbitPermissionStatus(): Promise<FitbitPermissionStatus> {
