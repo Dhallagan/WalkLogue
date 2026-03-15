@@ -39,6 +39,7 @@ export default function InsightsScreen({
   const db = useSQLiteContext();
   const router = useRouter();
   const scrollViewRef = useRef<ScrollView>(null);
+  const chatDraftRef = useRef("");
   const [entries, setEntries] = useState<EntryListItem[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
@@ -126,7 +127,7 @@ export default function InsightsScreen({
   }, [isSending, messages.length, scrollToBottom]);
 
   async function handleSendQuestion(nextQuestion?: string) {
-    const question = (nextQuestion ?? chatDraft).trim();
+    const question = (nextQuestion ?? chatDraftRef.current).trim();
 
     if (!question || isSending || entries.length === 0 || !aiReady) {
       return;
@@ -139,6 +140,7 @@ export default function InsightsScreen({
       content: question,
     };
 
+    chatDraftRef.current = "";
     setChatDraft("");
     setChatError(null);
     setIsSending(true);
@@ -169,6 +171,7 @@ export default function InsightsScreen({
       setMessages((currentMessages) =>
         currentMessages.filter((messageItem) => messageItem.id !== nextUserMessage.id),
       );
+      chatDraftRef.current = question;
       setChatDraft(question);
       scrollToBottom();
     } finally {
@@ -275,7 +278,7 @@ export default function InsightsScreen({
           ref={scrollViewRef}
           style={styles.scrollBody}
           contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           onContentSizeChange={() => {
             if (messages.length > 0 || isSending) {
               scrollToBottom();
@@ -373,12 +376,16 @@ export default function InsightsScreen({
           <View style={styles.composer}>
             <TextInput
               value={chatDraft}
-              onChangeText={setChatDraft}
+              onChangeText={(nextValue) => {
+                chatDraftRef.current = nextValue;
+                setChatDraft(nextValue);
+              }}
               onSubmitEditing={() => void handleSendQuestion()}
               placeholder="Ask your journal anything."
               placeholderTextColor={colors.muted}
               multiline
               returnKeyType="send"
+              rejectResponderTermination={false}
               submitBehavior="submit"
               style={styles.chatInput}
             />
@@ -386,7 +393,7 @@ export default function InsightsScreen({
               accessibilityRole="button"
               accessibilityLabel="Send message"
               disabled={isSending}
-              onPress={() => void handleSendQuestion()}
+              onPressIn={() => void handleSendQuestion()}
               style={({ pressed }) => [
                 styles.sendIconButton,
                 pressed && !isSending && styles.sendIconButtonPressed,
