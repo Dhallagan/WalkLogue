@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActionSheetIOS,
   Alert,
@@ -38,6 +38,7 @@ export default function InsightsScreen({
 }) {
   const db = useSQLiteContext();
   const router = useRouter();
+  const scrollViewRef = useRef<ScrollView>(null);
   const [entries, setEntries] = useState<EntryListItem[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
@@ -110,6 +111,20 @@ export default function InsightsScreen({
     };
   }, [isSending]);
 
+  const scrollToBottom = useCallback((animated = true) => {
+    requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollToEnd({ animated });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (messages.length === 0 && !isSending) {
+      return;
+    }
+
+    scrollToBottom();
+  }, [isSending, messages.length, scrollToBottom]);
+
   async function handleSendQuestion(nextQuestion?: string) {
     const question = (nextQuestion ?? chatDraft).trim();
 
@@ -128,6 +143,7 @@ export default function InsightsScreen({
     setChatError(null);
     setIsSending(true);
     setMessages((currentMessages) => [...currentMessages, nextUserMessage]);
+    scrollToBottom(false);
 
     try {
       const assistantReply = await answerInsightQuestion(
@@ -145,6 +161,7 @@ export default function InsightsScreen({
           content: assistantReply,
         },
       ]);
+      scrollToBottom();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Could not answer right now.";
@@ -153,6 +170,7 @@ export default function InsightsScreen({
         currentMessages.filter((messageItem) => messageItem.id !== nextUserMessage.id),
       );
       setChatDraft(question);
+      scrollToBottom();
     } finally {
       setIsSending(false);
     }
@@ -254,9 +272,15 @@ export default function InsightsScreen({
         </View>
 
         <ScrollView
+          ref={scrollViewRef}
           style={styles.scrollBody}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          onContentSizeChange={() => {
+            if (messages.length > 0 || isSending) {
+              scrollToBottom();
+            }
+          }}
         >
           {entries.length > 0 ? (
             <View style={styles.previewCard}>
@@ -350,9 +374,12 @@ export default function InsightsScreen({
             <TextInput
               value={chatDraft}
               onChangeText={setChatDraft}
+              onSubmitEditing={() => void handleSendQuestion()}
               placeholder="Ask your journal anything."
               placeholderTextColor={colors.muted}
               multiline
+              returnKeyType="send"
+              submitBehavior="submit"
               style={styles.chatInput}
             />
             <Pressable

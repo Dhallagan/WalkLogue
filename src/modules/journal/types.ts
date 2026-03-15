@@ -22,11 +22,10 @@ export type DailySteps = {
 };
 
 export type EntryListItem = JournalEntry & {
+  startedAt?: Date;
+  endedAt?: Date;
   durationSec?: number;
   stepCount?: number;
 };
 
-export type EntryDetail = EntryListItem & {
-  startedAt?: Date;
-  endedAt?: Date;
-};
+export type EntryDetail = EntryListItem;

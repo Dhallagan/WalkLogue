@@ -16,10 +16,16 @@ import {
   openAppSettings,
 } from "../src/modules/settings/permissions";
 import {
-  getHealthPermissionStatus,
-  requestHealthPermission,
-  type HealthPermissionStatus,
-} from "../src/modules/steps/health";
+  disconnectFitbitSource,
+  getResolvedStepSource,
+  getStepSourceLabel,
+  getStepSourceStatus,
+  isFitbitStepSourceConfigured,
+  requestStepSourceAccess,
+  useStepSource,
+  type StepPermissionStatus,
+  type StepSource,
+} from "../src/modules/steps/service";
 import { colors, layout, spacing } from "../src/theme";
 
 type RecordingPermissionStatus =
@@ -32,17 +38,31 @@ export default function SettingsScreen() {
   const [microphoneStatus, setMicrophoneStatus] =
     useState<RecordingPermissionStatus>("undetermined");
   const [healthStatus, setHealthStatus] =
-    useState<HealthPermissionStatus>("undetermined");
+    useState<StepPermissionStatus>("undetermined");
+  const [fitbitStatus, setFitbitStatus] =
+    useState<StepPermissionStatus>("undetermined");
+  const [selectedStepSource, setSelectedStepSource] =
+    useState<StepSource>("apple-health");
   const hasOpenAIKey = Boolean(process.env.EXPO_PUBLIC_OPENAI_API_KEY);
+  const fitbitConfigured = isFitbitStepSourceConfigured();
 
   const loadPermissionState = useCallback(async () => {
-    const [nextMicrophoneStatus, nextHealthStatus] = await Promise.all([
+    const [
+      nextMicrophoneStatus,
+      nextHealthStatus,
+      nextFitbitStatus,
+      nextSelectedStepSource,
+    ] = await Promise.all([
       getRecordingPermissionStatus(),
-      getHealthPermissionStatus(),
+      getStepSourceStatus("apple-health"),
+      getStepSourceStatus("fitbit"),
+      getResolvedStepSource(),
     ]);
 
     setMicrophoneStatus(nextMicrophoneStatus);
     setHealthStatus(nextHealthStatus);
+    setFitbitStatus(nextFitbitStatus);
+    setSelectedStepSource(nextSelectedStepSource);
   }, []);
 
   useFocusEffect(
@@ -61,7 +81,22 @@ export default function SettingsScreen() {
   }
 
   async function handleAllowHealth() {
-    await requestHealthPermission();
+    await requestStepSourceAccess("apple-health");
+    await loadPermissionState();
+  }
+
+  async function handleConnectFitbit() {
+    await requestStepSourceAccess("fitbit");
+    await loadPermissionState();
+  }
+
+  async function handleUseStepSource(source: StepSource) {
+    await useStepSource(source);
+    await loadPermissionState();
+  }
+
+  async function handleDisconnectFitbit() {
+    await disconnectFitbitSource();
     await loadPermissionState();
   }
 
@@ -92,16 +127,17 @@ export default function SettingsScreen() {
                 : undefined
           }
         />
+      </Panel>
 
-        <View style={styles.divider} />
-
+      <SectionLabel>Step Sources</SectionLabel>
+      <Panel style={styles.groupPanel}>
         <SettingBlock
-          eyebrow="Optional"
+          eyebrow={selectedStepSource === "apple-health" ? "Selected" : "Optional"}
           title="Apple Health"
           tone={healthTone}
           status={formatPermissionLabel(healthStatus)}
           description="Adds today&apos;s step count to Home and stores step totals with each saved walk."
-          note="Useful on-device, but the app should still feel complete without it."
+          note={getAppleHealthNote(healthStatus, selectedStepSource)}
           action={
             healthStatus === "undetermined"
               ? {
@@ -109,14 +145,34 @@ export default function SettingsScreen() {
                   kind: "primary",
                   onPress: () => void handleAllowHealth(),
                 }
-              : healthStatus === "denied"
+              : healthStatus === "granted" &&
+                  selectedStepSource !== "apple-health"
                 ? {
-                    label: "Open Settings",
+                    label: `Use ${getStepSourceLabel("apple-health")}`,
                     kind: "secondary",
-                    onPress: () => void openAppSettings(),
+                    onPress: () => void handleUseStepSource("apple-health"),
                   }
                 : undefined
           }
+        />
+
+        <View style={styles.divider} />
+
+        <SettingBlock
+          eyebrow={selectedStepSource === "fitbit" ? "Selected" : "Optional"}
+          title="Fitbit"
+          tone={getPillTone(fitbitStatus)}
+          status={formatFitbitLabel(fitbitStatus, fitbitConfigured)}
+          description="Uses your Fitbit account as the source for today&apos;s steps and saved walk totals."
+          note={getFitbitNote(fitbitStatus, selectedStepSource, fitbitConfigured)}
+          action={getFitbitAction({
+            fitbitConfigured,
+            fitbitStatus,
+            selectedStepSource,
+            onConnect: () => void handleConnectFitbit(),
+            onDisconnect: () => void handleDisconnectFitbit(),
+            onUseFitbit: () => void handleUseStepSource("fitbit"),
+          })}
         />
       </Panel>
 
@@ -181,7 +237,7 @@ function SettingBlock({
   );
 }
 
-function getPillTone(status: RecordingPermissionStatus | HealthPermissionStatus) {
+function getPillTone(status: RecordingPermissionStatus | StepPermissionStatus) {
   if (status === "granted") {
     return "success" as const;
   }
@@ -194,7 +250,7 @@ function getPillTone(status: RecordingPermissionStatus | HealthPermissionStatus)
 }
 
 function formatPermissionLabel(
-  status: RecordingPermissionStatus | HealthPermissionStatus,
+  status: RecordingPermissionStatus | StepPermissionStatus,
 ) {
   if (status === "granted") {
     return "Ready";
@@ -204,15 +260,107 @@ function formatPermissionLabel(
     return "Ask";
   }
 
-  if (status === "denied") {
-    return "Blocked";
-  }
-
   if (status === "unavailable") {
     return "Unavailable";
   }
 
   return "Unknown";
+}
+
+function formatFitbitLabel(
+  status: StepPermissionStatus,
+  fitbitConfigured: boolean,
+) {
+  if (!fitbitConfigured) {
+    return "Setup";
+  }
+
+  return formatPermissionLabel(status);
+}
+
+function getAppleHealthNote(
+  status: StepPermissionStatus,
+  selectedStepSource: StepSource,
+) {
+  if (status === "unavailable") {
+    return "Apple Health only works on supported Apple devices.";
+  }
+
+  if (selectedStepSource === "apple-health" && status === "granted") {
+    return "Currently used for Home and Walk steps. This is the fastest on-device option.";
+  }
+
+  if (status === "granted") {
+    return "Ready to use if you want on-device, near real-time step updates.";
+  }
+
+  return "After you allow access once, manage step access in the Health app if totals stay at 0.";
+}
+
+function getFitbitNote(
+  status: StepPermissionStatus,
+  selectedStepSource: StepSource,
+  fitbitConfigured: boolean,
+) {
+  if (!fitbitConfigured) {
+    return "Set EXPO_PUBLIC_FITBIT_CLIENT_ID and register walklog://fitbit as a Fitbit redirect URI.";
+  }
+
+  if (selectedStepSource === "fitbit" && status === "granted") {
+    return "Currently used for Home and Walk steps. Fitbit sync can lag behind live walking by a few minutes.";
+  }
+
+  if (status === "granted") {
+    return "Connected and ready. Fitbit sync can lag behind live walking by a few minutes.";
+  }
+
+  if (status === "unavailable") {
+    return "Fitbit login is unavailable in this environment.";
+  }
+
+  return "Connect your Fitbit account to pull steps from the Fitbit Web API.";
+}
+
+function getFitbitAction({
+  fitbitConfigured,
+  fitbitStatus,
+  selectedStepSource,
+  onConnect,
+  onDisconnect,
+  onUseFitbit,
+}: {
+  fitbitConfigured: boolean;
+  fitbitStatus: StepPermissionStatus;
+  selectedStepSource: StepSource;
+  onConnect: () => void;
+  onDisconnect: () => void;
+  onUseFitbit: () => void;
+}) {
+  if (!fitbitConfigured || fitbitStatus === "unavailable") {
+    return undefined;
+  }
+
+  if (fitbitStatus === "undetermined") {
+    return {
+      label: "Connect Fitbit",
+      kind: "primary" as const,
+      onPress: onConnect,
+    };
+  }
+
+  if (selectedStepSource === "fitbit") {
+    return {
+      label: "Disconnect Fitbit",
+      kind: "secondary" as const,
+      onPress: onDisconnect,
+    };
+  }
+
+  return {
+    label: "Use Fitbit",
+    kind: "secondary" as const,
+    onPress: onUseFitbit,
+  };
 }
 
 const styles = StyleSheet.create({

@@ -20,6 +20,7 @@ not a production-safe secret model.
 2. Generate native projects with `npm run prebuild`
 3. Run on iPhone or simulator with `npm run ios`
 4. Set `EXPO_PUBLIC_OPENAI_API_KEY` before running on a real device
+5. If you want Fitbit steps, set `EXPO_PUBLIC_FITBIT_CLIENT_ID` and register `walklog://fitbit` as the redirect URI in the Fitbit developer app
 
 This project is pinned to Expo SDK 51 because the current machine is running
 Node `20.6.1`. Newer Expo SDKs now require a newer Node 20 release.

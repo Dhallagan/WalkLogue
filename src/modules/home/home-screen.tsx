@@ -28,8 +28,9 @@ import type { EntryListItem } from "../journal/types";
 import {
   getTodayStepSnapshot,
   makeDailyStepsRecord,
-  type HealthPermissionStatus,
-} from "../steps/health";
+  type StepPermissionStatus,
+  type StepSource,
+} from "../steps/service";
 import { colors } from "../../theme";
 
 type EntrySection = {
@@ -43,7 +44,8 @@ export default function HomeScreen() {
   const [entries, setEntries] = useState<EntryListItem[]>([]);
   const [todaySteps, setTodaySteps] = useState<number | null>(null);
   const [stepPermission, setStepPermission] =
-    useState<HealthPermissionStatus>("undetermined");
+    useState<StepPermissionStatus>("undetermined");
+  const [stepSource, setStepSource] = useState<StepSource>("apple-health");
   const openSwipeableRef = useRef<EntrySwipeRowHandle | null>(null);
 
   const loadHome = useCallback(async () => {
@@ -56,6 +58,7 @@ export default function HomeScreen() {
       setEntries(nextEntries);
       setTodaySteps(stepSnapshot.totalSteps);
       setStepPermission(stepSnapshot.permission);
+      setStepSource(stepSnapshot.source);
     });
 
     if (stepSnapshot.permission === "granted") {
@@ -106,7 +109,7 @@ export default function HomeScreen() {
 
   const sections = useMemo(() => groupEntriesByDay(entries), [entries]);
   const todayLabel = formatLongDay(new Date());
-  const stepsLabel = formatStepsLabel(stepPermission, todaySteps);
+  const stepsLabel = formatStepsLabel(stepPermission, todaySteps, stepSource);
 
   const handleOpenMenu = useCallback(() => {
     const actions = [
@@ -219,26 +222,23 @@ function groupEntriesByDay(entries: EntryListItem[]): EntrySection[] {
 }
 
 function formatStepsLabel(
-  permission: HealthPermissionStatus,
+  permission: StepPermissionStatus,
   todaySteps: number | null,
+  source: StepSource,
 ) {
   if (todaySteps === null) {
     return "Loading steps...";
   }
 
   if (permission === "granted") {
-    return `${todaySteps.toLocaleString()} steps`;
-  }
-
-  if (permission === "denied") {
-    return "Health access off";
+    return `${todaySteps.toLocaleString()} steps via ${source === "fitbit" ? "Fitbit" : "Health"}`;
   }
 
   if (permission === "unavailable") {
-    return "Health unavailable";
+    return source === "fitbit" ? "Fitbit unavailable" : "Health unavailable";
   }
 
-  return "Allow Health for steps";
+  return source === "fitbit" ? "Connect Fitbit for steps" : "Allow Health for steps";
 }
 
 const styles = StyleSheet.create({

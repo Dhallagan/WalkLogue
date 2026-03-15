@@ -13,11 +13,12 @@ import { formatCompactDate, formatElapsed } from "../src/lib/date";
 import { useWalkCapture } from "../src/modules/capture/useWalkCapture";
 import { createWalkEntry } from "../src/modules/journal/repository";
 import {
-  getHealthPermissionStatus,
-  getStepCountForWindow,
-  getTodayStepCount,
-  type HealthPermissionStatus,
-} from "../src/modules/steps/health";
+  getStepPollingIntervalMs,
+  getTodayStepSnapshot,
+  getWindowStepSnapshot,
+  type StepPermissionStatus,
+  type StepSource,
+} from "../src/modules/steps/service";
 import { colors } from "../src/theme";
 
 export default function WalkScreen() {
@@ -26,7 +27,8 @@ export default function WalkScreen() {
   const hasStartedRef = useRef(false);
   const baselineTodayStepsRef = useRef(0);
   const stepsPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const stepPermissionRef = useRef<HealthPermissionStatus>("undetermined");
+  const stepPermissionRef = useRef<StepPermissionStatus>("undetermined");
+  const stepSourceRef = useRef<StepSource>("apple-health");
   const {
     transcript,
     elapsedSeconds,
@@ -42,7 +44,8 @@ export default function WalkScreen() {
   } = useWalkCapture();
   const [displayStepCount, setDisplayStepCount] = useState(0);
   const [stepPermission, setStepPermission] =
-    useState<HealthPermissionStatus>("undetermined");
+    useState<StepPermissionStatus>("undetermined");
+  const [stepSource, setStepSource] = useState<StepSource>("apple-health");
 
   useEffect(() => {
     if (hasStartedRef.current) {
@@ -93,19 +96,23 @@ export default function WalkScreen() {
     }
 
     if (stepPermission === "granted") {
+      if (stepSource === "fitbit") {
+        return "Recording in the background. Fitbit sync can lag, so steps may update a little later.";
+      }
+
       return "Recording in the background. Lock your screen and keep talking.";
     }
 
-    if (stepPermission === "denied") {
-      return "Recording in the background. Health access is off, so this walk will save with 0 steps.";
-    }
-
     if (stepPermission === "unavailable") {
-      return "Recording in the background. Health data is unavailable on this device.";
+      return stepSource === "fitbit"
+        ? "Recording in the background. Fitbit is unavailable in this build."
+        : "Recording in the background. Health data is unavailable on this device.";
     }
 
-    return "Recording in the background. Allow Health access to save walk steps.";
-  }, [isSimulatorRecordingFallback, isTranscribing, stepPermission]);
+    return stepSource === "fitbit"
+      ? "Recording in the background. Connect Fitbit in Settings to save walk steps."
+      : "Recording in the background. Allow Health access to save walk steps.";
+  }, [isSimulatorRecordingFallback, isTranscribing, stepPermission, stepSource]);
 
   async function handleFinish() {
     if (isTranscribing) {
@@ -114,10 +121,12 @@ export default function WalkScreen() {
 
     try {
       const session = await finish();
+      const stepSnapshot = await getWindowStepSnapshot(
+        session.startedAt,
+        session.endedAt,
+      );
       const stepCount =
-        stepPermissionRef.current === "granted"
-          ? await getStepCountForWindow(session.startedAt, session.endedAt)
-          : 0;
+        stepSnapshot.permission === "granted" ? stepSnapshot.totalSteps : 0;
       const entry = await createWalkEntry(db, {
         body: session.transcript,
         startedAt: session.startedAt,
@@ -168,32 +177,36 @@ export default function WalkScreen() {
 
   async function initializeStepTracking() {
     try {
-      const permission = await getHealthPermissionStatus();
-      stepPermissionRef.current = permission;
-      setStepPermission(permission);
+      const snapshot = await getTodayStepSnapshot();
 
-      if (permission !== "granted") {
+      stepPermissionRef.current = snapshot.permission;
+      stepSourceRef.current = snapshot.source;
+      setStepPermission(snapshot.permission);
+      setStepSource(snapshot.source);
+
+      if (snapshot.permission !== "granted") {
         setDisplayStepCount(0);
         return;
       }
 
-      const startingTotal = await getTodayStepCount();
-      baselineTodayStepsRef.current = startingTotal;
+      baselineTodayStepsRef.current = snapshot.totalSteps;
       setDisplayStepCount(0);
-      startStepPolling();
+      startStepPolling(snapshot.source);
     } catch {
       stepPermissionRef.current = "unavailable";
+      stepSourceRef.current = "apple-health";
       setStepPermission("unavailable");
+      setStepSource("apple-health");
       setDisplayStepCount(0);
     }
   }
 
-  function startStepPolling() {
+  function startStepPolling(source: StepSource) {
     clearStepPolling();
 
     stepsPollRef.current = setInterval(() => {
       void refreshWalkSteps();
-    }, 15000);
+    }, getStepPollingIntervalMs(source));
   }
 
   function clearStepPolling() {
@@ -205,16 +218,26 @@ export default function WalkScreen() {
 
   async function refreshWalkSteps() {
     try {
-      if (stepPermissionRef.current !== "granted") {
+      const snapshot = await getTodayStepSnapshot();
+
+      stepPermissionRef.current = snapshot.permission;
+      stepSourceRef.current = snapshot.source;
+      setStepPermission(snapshot.permission);
+      setStepSource(snapshot.source);
+
+      if (snapshot.permission !== "granted") {
         setDisplayStepCount(0);
         return;
       }
 
-      const currentTotal = await getTodayStepCount();
-      setDisplayStepCount(Math.max(0, currentTotal - baselineTodayStepsRef.current));
+      setDisplayStepCount(
+        Math.max(0, snapshot.totalSteps - baselineTodayStepsRef.current),
+      );
     } catch {
       stepPermissionRef.current = "unavailable";
+      stepSourceRef.current = "apple-health";
       setStepPermission("unavailable");
+      setStepSource("apple-health");
       setDisplayStepCount(0);
     }
   }

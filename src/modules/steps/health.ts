@@ -1,5 +1,5 @@
 import Healthkit, {
-  HKAuthorizationStatus,
+  HKAuthorizationRequestStatus,
   HKQuantityTypeIdentifier,
   HKStatisticsOptions,
   HKUnits,
@@ -9,7 +9,6 @@ import { formatDayKey } from "../../lib/date";
 
 export type HealthPermissionStatus =
   | "granted"
-  | "denied"
   | "undetermined"
   | "unavailable";
 
@@ -21,16 +20,15 @@ export async function getHealthPermissionStatus() {
       return "unavailable" as const satisfies HealthPermissionStatus;
     }
 
-    const status = await Healthkit.authorizationStatusFor(
+    // HealthKit does not expose a reliable read-only grant/deny status for steps.
+    // We use whether the authorization sheet still needs to be shown to decide
+    // when it is safe to start querying without crashing.
+    const status = await Healthkit.getRequestStatusForAuthorization([
       HKQuantityTypeIdentifier.stepCount,
-    );
+    ]);
 
-    if (status === HKAuthorizationStatus.sharingAuthorized) {
+    if (status === HKAuthorizationRequestStatus.unnecessary) {
       return "granted" as const satisfies HealthPermissionStatus;
-    }
-
-    if (status === HKAuthorizationStatus.sharingDenied) {
-      return "denied" as const satisfies HealthPermissionStatus;
     }
 
     return "undetermined" as const satisfies HealthPermissionStatus;

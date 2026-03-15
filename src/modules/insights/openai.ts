@@ -3,10 +3,10 @@ import type { EntryListItem } from "../journal/types";
 import {
   buildInsightSnapshot,
   filterEntriesForTimeframe,
-  selectEntriesForQuestion,
   type InsightTimeframe,
   type InsightSnapshot,
 } from "./analysis";
+import { buildInsightAnswerChain } from "./chain";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_INSIGHTS_MODEL = "gpt-5-mini";
@@ -112,40 +112,13 @@ export async function answerInsightQuestion(
   timeframe: InsightTimeframe,
 ) {
   const { apiKey, model } = getInsightsConfig();
-  const filteredEntries = filterEntriesForTimeframe(entries, timeframe);
-  const relevantEntries = selectEntriesForQuestion(filteredEntries, question, 6);
-  const fallbackEntries =
-    relevantEntries.length > 0
-      ? relevantEntries
-      : filteredEntries.slice(0, MAX_CONTEXT_ENTRIES);
-  const conversation = [...messages, { role: "user" as const, content: question }]
-    .slice(-8)
-    .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
-    .join("\n\n");
-
-  const prompt = [
-    "Answer the user's question about their own journal entries.",
-    "Use only the supplied entries and conversation context.",
-    "Be grounded, but write with warmth and inwardness.",
-    "Focus on meaning, feeling, tension, and what seems alive beneath the surface.",
-    "Do not default to metrics, counts, or analytical framing unless the user asks for them.",
-    "If the evidence is mixed, say so.",
-    "When relevant, mention the specific day or entry timing.",
-    `The requested time window is ${formatTimeframeLabel(timeframe)}.`,
-    "",
-    "Relevant entries:",
-    buildEntryContext(fallbackEntries),
-    "",
-    "Conversation:",
-    conversation,
-  ].join("\n");
+  const answerChain = buildInsightAnswerChain(entries, messages, question, timeframe);
 
   return createInsightsResponse({
     apiKey,
     model,
-    instructions:
-      "You are answering questions about the user's life from their own journal. Sound like a thoughtful, soulful reader rather than an analyst. Stay inside the evidence. Prefer synthesis over quoting. Highlight emotional undercurrents, motives, and tensions when the entries support them. Do not lead with counts, summaries, or dashboards unless asked. If the entries do not support a conclusion, say what is missing.",
-    input: prompt,
+    instructions: answerChain.instructions,
+    input: answerChain.prompt,
   });
 }
 
