@@ -1,0 +1,61 @@
+name: Agent Task
+description: Structured task for Codex or another coding agent
+title: "[Agent Task] "
+labels:
+  - agent-ready
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: Describe the user-facing outcome.
+      placeholder: Add a first-run onboarding state model without redesigning the whole app.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Keep blast radius small. Name screens, modules, or files that should change.
+      placeholder: app/index.tsx, src/modules/home/home-screen.tsx, new onboarding state module
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Preserve style, avoid risky files, or call out anything the agent should not change.
+      placeholder: Keep the current notebook visual style. Do not change capture logic.
+    validations:
+      required: true
+
+  - type: textarea
+    id: done-criteria
+    attributes:
+      label: Done Criteria
+      description: Define what must be true for the PR to be acceptable.
+      placeholder: Persistent state exists, app entry respects it, PR summarizes remaining UI follow-up work.
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: Describe required checks or device-only verification.
+      placeholder: Run npm run ci:check. Call out any real-device validation still needed.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: preview-build
+    attributes:
+      label: Preview Build Needed
+      description: Decide if the PR should trigger an iOS preview build.
+      options:
+        - "Yes"
+        - "No"
+    validations:
+      required: true

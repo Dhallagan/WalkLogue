@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Codex Workflow
+    url: https://github.com/Dhallagan/HomeworkForLife/blob/main/docs/codex-workflow.md
+    about: Read the repo workflow before opening broad feature requests.
