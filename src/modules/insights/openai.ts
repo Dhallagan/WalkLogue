@@ -13,6 +13,8 @@ const DEFAULT_INSIGHTS_MODEL = "gpt-5-mini";
 const MAX_CONTEXT_ENTRIES = 8;
 const reflectionCache = new Map<string, string>();
 const reflectionInFlight = new Map<string, Promise<string>>();
+const dailyHomeCardsCache = new Map<string, DailyHomeCards>();
+const dailyHomeCardsInFlight = new Map<string, Promise<DailyHomeCards>>();
 
 type InsightChatMessage = {
   role: "user" | "assistant";
@@ -31,6 +33,12 @@ type OpenAIResponsesResponse = {
   error?: {
     message?: string;
   };
+};
+
+export type DailyHomeCards = {
+  thinkingAbout: string;
+  whatSeemsTrue: string;
+  closeTheDay: string | null;
 };
 
 export async function generateReflection(
@@ -120,6 +128,82 @@ export async function answerInsightQuestion(
     instructions: answerChain.instructions,
     input: answerChain.prompt,
   });
+}
+
+export async function generateDailyHomeCards(entries: EntryListItem[]) {
+  const { apiKey, model } = getInsightsConfig();
+  const contextEntries = [...entries]
+    .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+    .slice(0, MAX_CONTEXT_ENTRIES);
+  const cacheKey = buildDailyHomeCardsCacheKey(model, contextEntries);
+
+  const cachedCards = dailyHomeCardsCache.get(cacheKey);
+
+  if (cachedCards) {
+    return cachedCards;
+  }
+
+  const inFlightCards = dailyHomeCardsInFlight.get(cacheKey);
+
+  if (inFlightCards) {
+    return inFlightCards;
+  }
+
+  const prompt = [
+    "Summarize the user's journal entries for today.",
+    "Return JSON only.",
+    'Use this shape: {"thinkingAbout":"", "whatSeemsTrue":"", "closeTheDay":""}.',
+    "Rules:",
+    "- Ground every statement in the provided entries.",
+    "- Treat all entries as one day-level set, not separate moments.",
+    "- thinkingAbout must answer: what were you thinking about today?",
+    "- thinkingAbout must be one short sentence, 8 to 18 words.",
+    "- whatSeemsTrue must answer: what seems to be going on beneath the day?",
+    "- whatSeemsTrue must be one short sentence, 8 to 18 words.",
+    "- closeTheDay may offer one grounded suggestion to remedy, follow through, or close something out.",
+    "- closeTheDay must be concrete, gentle, and specific if present.",
+    "- Never return generic filler like 'keep going', 'stay on track', or 'keep pushing'.",
+    "- If there is no clear grounded suggestion, return an empty string for closeTheDay.",
+    "- Do not invent actions, advice, recommendations, or emotional interpretation not supported by the entries.",
+    "",
+    "Today's entries:",
+    buildEntryContext(contextEntries),
+  ].join("\n");
+
+  const cardsPromise = createInsightsResponse({
+    apiKey,
+    model,
+    instructions:
+      "You extract grounded day-level home summaries for a personal journal app. Be concise, observant, and emotionally intelligent without inventing. Output valid JSON only.",
+    input: prompt,
+  })
+    .then((responseText) => {
+      const parsed = parseDailyHomeCards(responseText);
+      dailyHomeCardsCache.set(cacheKey, parsed);
+      dailyHomeCardsInFlight.delete(cacheKey);
+      return parsed;
+    })
+    .catch((error) => {
+      dailyHomeCardsInFlight.delete(cacheKey);
+      throw error;
+    });
+
+  dailyHomeCardsInFlight.set(cacheKey, cardsPromise);
+
+  return cardsPromise;
+}
+
+export function peekCachedDailyHomeCards(entries: EntryListItem[]) {
+  if (!hasInsightsConfig()) {
+    return null;
+  }
+
+  const { model } = getInsightsConfig();
+  const contextEntries = [...entries]
+    .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+    .slice(0, MAX_CONTEXT_ENTRIES);
+  const cacheKey = buildDailyHomeCardsCacheKey(model, contextEntries);
+  return dailyHomeCardsCache.get(cacheKey) ?? null;
 }
 
 export function hasInsightsConfig() {
@@ -270,6 +354,86 @@ function getReflectionRequestContext(
     snapshot,
   };
 }
+
+function buildDailyHomeCardsCacheKey(model: string, entries: EntryListItem[]) {
+  const entrySignature = entries
+    .map((entry) =>
+      [
+        entry.id,
+        entry.createdAt.toISOString(),
+        entry.body,
+        entry.stepCount ?? "",
+        entry.durationSec ?? "",
+      ].join("|"),
+    )
+    .join("||");
+
+  return `${model}::daily-home::${entrySignature}`;
+}
+
+function parseDailyHomeCards(responseText: string): DailyHomeCards {
+  const normalized = responseText.trim();
+  const jsonText =
+    normalized.startsWith("```")
+      ? normalized.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")
+      : normalized;
+
+  const parsed = JSON.parse(jsonText) as Partial<DailyHomeCards>;
+
+  if (
+    typeof parsed.thinkingAbout !== "string" ||
+    parsed.thinkingAbout.trim().length === 0 ||
+    typeof parsed.whatSeemsTrue !== "string" ||
+    parsed.whatSeemsTrue.trim().length === 0
+  ) {
+    throw new Error("OpenAI returned an invalid daily home payload.");
+  }
+
+  return {
+    thinkingAbout: normalizeSentence(parsed.thinkingAbout),
+    whatSeemsTrue: normalizeSentence(parsed.whatSeemsTrue),
+    closeTheDay:
+      typeof parsed.closeTheDay === "string"
+        ? normalizeOptionalSuggestion(parsed.closeTheDay)
+        : null,
+  };
+}
+
+function normalizeSentence(value: string) {
+  const cleaned = value.trim().replace(/\s+/g, " ");
+
+  if (!cleaned) {
+    return "";
+  }
+
+  const capitalized = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+
+  if (/[.!?]$/.test(capitalized)) {
+    return capitalized;
+  }
+
+  return `${capitalized}.`;
+}
+
+function normalizeOptionalSuggestion(value: string) {
+  const normalized = normalizeSentence(value);
+  return normalized && !isWeakAction(normalized) ? normalized : null;
+}
+
+function isWeakAction(action: string) {
+  const normalized = action.toLowerCase();
+  return WEAK_ACTION_PATTERNS.some((pattern) => normalized.includes(pattern));
+}
+
+const WEAK_ACTION_PATTERNS = [
+  "keep going",
+  "stay on track",
+  "keep pushing",
+  "be on track",
+  "keep working",
+  "try harder",
+  "stay productive",
+];
 
 function buildReflectionCacheKey(
   model: string,

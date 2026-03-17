@@ -1,10 +1,10 @@
-import { startTransition, useCallback, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useMemo, useState } from "react";
 import {
   ActionSheetIOS,
   Alert,
   Platform,
   Pressable,
-  SectionList,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -13,17 +13,15 @@ import { useFocusEffect, useRouter, type Href } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import {
-  EntrySwipeRow,
-  type EntrySwipeRowHandle,
-} from "../../components/entry-swipe-row";
-import { PaperRecordButton, PaperRow } from "../../components/notebook";
+import { PaperRecordButton } from "../../components/notebook";
 import { formatLongDay } from "../../lib/date";
 import {
-  deleteEntry,
-  listEntries,
-  upsertDailySteps,
-} from "../journal/repository";
+  generateDailyHomeCards,
+  hasInsightsConfig,
+  peekCachedDailyHomeCards,
+  type DailyHomeCards,
+} from "../insights/openai";
+import { listEntries, upsertDailySteps } from "../journal/repository";
 import type { EntryListItem } from "../journal/types";
 import {
   getTodayStepSnapshot,
@@ -33,17 +31,13 @@ import {
 } from "../steps/service";
 import { colors } from "../../theme";
 
-type EntrySection = {
-  title: string;
-  data: EntryListItem[];
-};
-
 type HomeScreenMemoryState = {
   entries: EntryListItem[];
   todaySteps: number | null;
   stepPermission: StepPermissionStatus;
   stepSource: StepSource;
   hasLoadedOnce: boolean;
+  dailyHomeCards: DailyHomeCards | null;
 };
 
 type TodayOverview = {
@@ -54,17 +48,36 @@ type TodayOverview = {
   stepsDetail: string;
 };
 
+type HomeCard =
+  | {
+      kind: "attention";
+      body: string;
+    }
+  | {
+      kind: "daily";
+      thinkingAbout: string;
+      whatSeemsTrue: string;
+      closeTheDay?: string | null;
+    };
+
 const initialMemoryState: HomeScreenMemoryState = {
   entries: [],
   todaySteps: null,
   stepPermission: "undetermined",
   stepSource: "apple-health",
   hasLoadedOnce: false,
+  dailyHomeCards: null,
 };
 
 let homeScreenMemoryState: HomeScreenMemoryState = initialMemoryState;
 
-export default function HomeScreen() {
+export default function HomeScreen({
+  onNavigateEntries: _onNavigateEntries,
+  onNavigateInsights: _onNavigateInsights,
+}: {
+  onNavigateEntries: () => void;
+  onNavigateInsights: () => void;
+}) {
   const db = useSQLiteContext();
   const router = useRouter();
   const [entries, setEntries] = useState<EntryListItem[]>(homeScreenMemoryState.entries);
@@ -76,7 +89,11 @@ export default function HomeScreen() {
   );
   const [stepSource, setStepSource] = useState<StepSource>(homeScreenMemoryState.stepSource);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(homeScreenMemoryState.hasLoadedOnce);
-  const openSwipeableRef = useRef<EntrySwipeRowHandle | null>(null);
+  const [dailyHomeCards, setDailyHomeCards] = useState<DailyHomeCards | null>(
+    homeScreenMemoryState.dailyHomeCards,
+  );
+  const todayLabel = formatLongDay(new Date());
+  const aiReady = hasInsightsConfig();
 
   const loadHome = useCallback(async () => {
     try {
@@ -93,16 +110,31 @@ export default function HomeScreen() {
         setHasLoadedOnce(true);
       });
 
+      const todayEntries = nextEntries.filter(
+        (entry) => isSameCalendarDay(entry.createdAt, new Date()) && isJournalEntryComplete(entry),
+      );
+      const cachedDailyCards =
+        aiReady && todayEntries.length > 0 ? peekCachedDailyHomeCards(todayEntries) : null;
+
+      startTransition(() => {
+        setDailyHomeCards(cachedDailyCards ?? null);
+      });
+
       homeScreenMemoryState = {
         entries: nextEntries,
         todaySteps: stepSnapshot.totalSteps,
         stepPermission: stepSnapshot.permission,
         stepSource: stepSnapshot.source,
         hasLoadedOnce: true,
+        dailyHomeCards: cachedDailyCards ?? null,
       };
 
       if (stepSnapshot.permission === "granted") {
         void upsertDailySteps(db, makeDailyStepsRecord(stepSnapshot.totalSteps));
+      }
+
+      if (aiReady && todayEntries.length > 0) {
+        void loadDailyHomeCards(todayEntries);
       }
     } catch (error) {
       console.error("Failed to load Home", error);
@@ -110,56 +142,31 @@ export default function HomeScreen() {
         setHasLoadedOnce(true);
       });
     }
-  }, [db]);
+  }, [aiReady, db]);
+
+  const loadDailyHomeCards = useCallback(async (todayEntries: EntryListItem[]) => {
+    try {
+      const nextDailyHomeCards = await generateDailyHomeCards(todayEntries);
+
+      startTransition(() => {
+        setDailyHomeCards(nextDailyHomeCards);
+      });
+
+      homeScreenMemoryState = {
+        ...homeScreenMemoryState,
+        dailyHomeCards: nextDailyHomeCards,
+      };
+    } catch (error) {
+      console.error("Failed to load daily home cards", error);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       void loadHome();
-
-      return () => {
-        openSwipeableRef.current?.close();
-        openSwipeableRef.current = null;
-      };
     }, [loadHome]),
   );
 
-  const handleRowOpen = useCallback((nextSwipeable: EntrySwipeRowHandle) => {
-    if (openSwipeableRef.current && openSwipeableRef.current !== nextSwipeable) {
-      openSwipeableRef.current.close();
-    }
-
-    openSwipeableRef.current = nextSwipeable;
-  }, []);
-
-  const handleDelete = useCallback(
-    async (entryId: string) => {
-      openSwipeableRef.current?.close();
-      openSwipeableRef.current = null;
-
-      startTransition(() => {
-        setEntries((currentEntries) => {
-          const nextEntries = currentEntries.filter((entry) => entry.id !== entryId);
-          homeScreenMemoryState = {
-            ...homeScreenMemoryState,
-            entries: nextEntries,
-          };
-          return nextEntries;
-        });
-      });
-
-      try {
-        await deleteEntry(db, entryId);
-      } catch (error) {
-        console.error("Failed to delete entry", error);
-        Alert.alert("Couldn't delete entry", "Please try again.");
-        await loadHome();
-      }
-    },
-    [db, loadHome],
-  );
-
-  const sections = useMemo(() => groupEntriesByDay(entries), [entries]);
-  const todayLabel = formatLongDay(new Date());
   const todayOverview = useMemo(
     () =>
       buildTodayOverview({
@@ -169,13 +176,11 @@ export default function HomeScreen() {
         source: stepSource,
         todaySteps,
       }),
-    [
-      entries,
-      hasLoadedOnce,
-      stepPermission,
-      stepSource,
-      todaySteps,
-    ],
+    [entries, hasLoadedOnce, stepPermission, stepSource, todaySteps],
+  );
+  const homeCards = useMemo(
+    () => buildHomeCards(entries, stepPermission, dailyHomeCards, aiReady),
+    [aiReady, dailyHomeCards, entries, stepPermission],
   );
 
   const handleOpenMenu = useCallback(() => {
@@ -241,62 +246,70 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        <SectionList
-          style={styles.list}
-          sections={sections}
-          keyExtractor={(item) => item.id}
-          stickySectionHeadersEnabled={false}
-          contentContainerStyle={styles.listContent}
-          ListHeaderComponent={
-            <View style={styles.listHeader}>
-              <View style={styles.summaryRow}>
-                <Pressable
-                  accessibilityRole={todayOverview.latestEntryRoute ? "button" : undefined}
-                  disabled={!todayOverview.latestEntryRoute}
-                  onPress={handleOpenLatestEntry}
-                  style={({ pressed }) => [
-                    styles.summaryCard,
-                    styles.summaryCardLeft,
-                    pressed && todayOverview.latestEntryRoute && styles.summaryCardPressed,
-                  ]}
-                >
-                  <Text style={styles.summaryLabel}>Journal</Text>
-                  <Text style={styles.summaryValue}>{todayOverview.journalValue}</Text>
-                  <Text style={styles.summaryDetail}>{todayOverview.journalDetail}</Text>
-                </Pressable>
+        <ScrollView
+          style={styles.bodyScroll}
+          contentContainerStyle={styles.bodyContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.summaryWrap}>
+            <View style={styles.summaryRow}>
+              <Pressable
+                accessibilityRole={todayOverview.latestEntryRoute ? "button" : undefined}
+                disabled={!todayOverview.latestEntryRoute}
+                onPress={handleOpenLatestEntry}
+                style={({ pressed }) => [
+                  styles.summaryCard,
+                  styles.summaryCardLeft,
+                  pressed && todayOverview.latestEntryRoute && styles.summaryCardPressed,
+                ]}
+              >
+                <Text style={styles.summaryLabel}>Journal</Text>
+                <Text style={styles.summaryValue}>{todayOverview.journalValue}</Text>
+                <Text style={styles.summaryDetail}>{todayOverview.journalDetail}</Text>
+              </Pressable>
 
-                <View style={styles.summaryDivider} />
+              <View style={styles.summaryDivider} />
 
-                <View style={[styles.summaryCard, styles.summaryCardRight]}>
-                  <Text style={styles.summaryLabel}>Steps</Text>
-                  <Text style={styles.summaryValue}>{todayOverview.stepsValue}</Text>
-                  <Text style={styles.summaryDetail}>{todayOverview.stepsDetail}</Text>
-                </View>
+              <View style={[styles.summaryCard, styles.summaryCardRight]}>
+                <Text style={styles.summaryLabel}>Steps</Text>
+                <Text style={styles.summaryValue}>{todayOverview.stepsValue}</Text>
+                <Text style={styles.summaryDetail}>{todayOverview.stepsDetail}</Text>
               </View>
             </View>
-          }
-          ListEmptyComponent={
-            <View style={styles.listEmptyWrap}>
-              <PaperRow>
-                <Text style={styles.emptyText}>No entries yet.</Text>
-              </PaperRow>
-            </View>
-          }
-          renderSectionHeader={({ section }) => (
-            <Text style={styles.sectionTitle}>
-              {section.title === todayLabel ? "Today" : section.title}
-            </Text>
-          )}
-          renderItem={({ item }) => (
-            <EntrySwipeRow
-              entry={item}
-              onOpen={handleRowOpen}
-              onDelete={() => void handleDelete(item.id)}
-              onPress={() => router.push(`/entry/${item.id}`)}
-            />
-          )}
-          SectionSeparatorComponent={() => <View style={styles.sectionGap} />}
-        />
+          </View>
+
+          <View style={styles.cardsStack}>
+            {homeCards.map((card) => (
+              card.kind === "attention" ? (
+                <View key={card.body} style={[styles.homeCard, styles.homeCardAlert]}>
+                  <Text style={styles.homeCardLabel}>For Today</Text>
+                  <Text style={styles.homeCardBody}>{card.body}</Text>
+                </View>
+              ) : (
+                <View key={card.thinkingAbout} style={styles.homeCard}>
+                  <Text style={styles.homeCardLabel}>Daily Summary</Text>
+
+                  <View style={styles.cardSection}>
+                    <Text style={styles.cardSectionLabel}>What You Were Thinking About</Text>
+                    <Text style={styles.homeCardBody}>{card.thinkingAbout}</Text>
+                  </View>
+
+                  <View style={styles.cardSection}>
+                    <Text style={styles.cardSectionLabel}>What Seems True</Text>
+                    <Text style={styles.homeCardBody}>{card.whatSeemsTrue}</Text>
+                  </View>
+
+                  {card.closeTheDay ? (
+                    <View style={styles.cardSection}>
+                      <Text style={styles.cardSectionLabel}>To Close The Day</Text>
+                      <Text style={styles.actionText}>{card.closeTheDay}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              )
+            ))}
+          </View>
+        </ScrollView>
 
         <View style={styles.bottomDock}>
           <View style={styles.bottomDockRule} />
@@ -305,22 +318,6 @@ export default function HomeScreen() {
       </View>
     </SafeAreaView>
   );
-}
-
-function groupEntriesByDay(entries: EntryListItem[]): EntrySection[] {
-  const sections = new Map<string, EntryListItem[]>();
-
-  for (const entry of entries) {
-    const key = formatLongDay(entry.createdAt);
-    const nextGroup = sections.get(key) ?? [];
-    nextGroup.push(entry);
-    sections.set(key, nextGroup);
-  }
-
-  return Array.from(sections.entries()).map(([title, data]) => ({
-    title,
-    data,
-  }));
 }
 
 function buildTodayOverview({
@@ -429,6 +426,117 @@ function isJournalEntryComplete(entry: EntryListItem) {
   return entry.body.trim().length > 0;
 }
 
+function buildHomeCards(
+  entries: EntryListItem[],
+  stepPermission: StepPermissionStatus,
+  dailyHomeCards: DailyHomeCards | null,
+  aiReady: boolean,
+): HomeCard[] {
+  const todayEntries = entries.filter((entry) => isSameCalendarDay(entry.createdAt, new Date()));
+  const todayCompleteEntries = todayEntries.filter((entry) => isJournalEntryComplete(entry));
+  const unfinishedEntry = entries.find(
+    (entry) => isSameCalendarDay(entry.createdAt, new Date()) && !isJournalEntryComplete(entry),
+  );
+  const cards: HomeCard[] = [];
+
+  if (unfinishedEntry) {
+    cards.push({
+      kind: "attention",
+      body: "You left one entry unfinished today.",
+    });
+  } else if (stepPermission !== "granted") {
+    cards.push({
+      kind: "attention",
+      body: "Turn tracking on if you want your walks counted.",
+    });
+  }
+
+  cards.push(buildDailyCard(todayCompleteEntries, dailyHomeCards, aiReady));
+
+  return cards;
+}
+
+function buildDailyCard(
+  entries: EntryListItem[],
+  dailyHomeCards: DailyHomeCards | null,
+  aiReady: boolean,
+): HomeCard {
+  return {
+    kind: "daily",
+    thinkingAbout: buildThinkingAbout(entries, dailyHomeCards, aiReady),
+    whatSeemsTrue: buildWhatSeemsTrue(entries, dailyHomeCards, aiReady),
+    closeTheDay: buildCloseTheDay(dailyHomeCards, aiReady),
+  };
+}
+
+function buildThinkingAbout(
+  entries: EntryListItem[],
+  dailyHomeCards: DailyHomeCards | null,
+  aiReady: boolean,
+) {
+  if (entries.length === 0) {
+    return "Nothing logged today yet.";
+  }
+
+  if (aiReady && dailyHomeCards?.thinkingAbout) {
+    return dailyHomeCards.thinkingAbout;
+  }
+
+  const wordCount = entries.reduce((sum, entry) => sum + countWords(entry.body), 0);
+  const walkCount = entries.filter((entry) => entry.source === "walk").length;
+  const parts = [entries.length === 1 ? "1 entry" : `${entries.length} entries`];
+
+  if (wordCount > 0) {
+    parts.push(`${wordCount} words`);
+  }
+
+  if (walkCount > 0) {
+    parts.push(walkCount === 1 ? "1 walk" : `${walkCount} walks`);
+  }
+
+  return parts.join(", ") + ".";
+}
+
+function buildWhatSeemsTrue(
+  entries: EntryListItem[],
+  dailyHomeCards: DailyHomeCards | null,
+  aiReady: boolean,
+) {
+  if (entries.length === 0) {
+    return "The day has not taken shape on the page yet.";
+  }
+
+  if (aiReady && dailyHomeCards?.whatSeemsTrue) {
+    return dailyHomeCards.whatSeemsTrue;
+  }
+
+  return "A fuller pattern should emerge once there is more written today.";
+}
+
+function buildCloseTheDay(
+  dailyHomeCards: DailyHomeCards | null,
+  aiReady: boolean,
+): string | undefined {
+  if (!aiReady) {
+    return undefined;
+  }
+
+  return dailyHomeCards?.closeTheDay ?? undefined;
+}
+
+function countWords(body: string) {
+  return tokenize(body).length;
+}
+
+function tokenize(body: string) {
+  return body
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length >= 3);
+}
+
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -486,17 +594,17 @@ const styles = StyleSheet.create({
     marginTop: -6,
     letterSpacing: 1.2,
   },
-  list: {
+  bodyScroll: {
     flex: 1,
   },
-  listContent: {
+  bodyContent: {
     paddingTop: 2,
-    paddingBottom: 8,
+    paddingBottom: 12,
+    gap: 12,
   },
-  listHeader: {
+  summaryWrap: {
     paddingHorizontal: 18,
-    paddingBottom: 6,
-    gap: 8,
+    paddingBottom: 2,
   },
   summaryRow: {
     flexDirection: "row",
@@ -547,24 +655,47 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  listEmptyWrap: {
+  cardsStack: {
     paddingHorizontal: 18,
+    gap: 10,
   },
-  sectionTitle: {
+  homeCard: {
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 22,
+    backgroundColor: colors.accentSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  homeCardAlert: {
+    backgroundColor: colors.surface,
+  },
+  homeCardLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    letterSpacing: 1,
+    fontFamily: "Courier",
+    textTransform: "uppercase",
+  },
+  homeCardBody: {
     color: colors.text,
     fontSize: 15,
-    lineHeight: 18,
-    letterSpacing: 0.8,
-    fontFamily: "Courier",
-    paddingHorizontal: 18,
-    paddingBottom: 4,
+    lineHeight: 22,
   },
-  sectionGap: {
-    height: 10,
+  cardSection: {
+    gap: 8,
   },
-  emptyText: {
+  cardSectionLabel: {
     color: colors.muted,
-    fontSize: 16,
+    fontSize: 11,
+    letterSpacing: 1,
+    fontFamily: "Courier",
+    textTransform: "uppercase",
+  },
+  actionText: {
+    color: colors.text,
+    fontSize: 15,
     lineHeight: 22,
   },
   bottomDock: {

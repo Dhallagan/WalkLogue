@@ -10,9 +10,12 @@ import {
 
 import HomeScreen from "../src/modules/home";
 import InsightsScreen from "../src/modules/insights/insights-screen";
+import EntriesScreen from "../src/modules/journal/entries-screen";
 import { colors } from "../src/theme";
 
-type PageName = "insights" | "home";
+type PageName = "insights" | "home" | "entries";
+
+const PAGE_ORDER: PageName[] = ["insights", "home", "entries"];
 
 export default function RootPagerScreen() {
   const scrollRef = useRef<ScrollView | null>(null);
@@ -26,7 +29,7 @@ export default function RootPagerScreen() {
 
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({
-        x: activePage === "home" ? width : 0,
+        x: getPageOffset(activePage, width),
         animated: false,
       });
     });
@@ -40,7 +43,8 @@ export default function RootPagerScreen() {
     }
 
     const offsetX = event.nativeEvent.contentOffset.x;
-    setActivePage(offsetX < width / 2 ? "insights" : "home");
+    const nextIndex = Math.round(offsetX / width);
+    setActivePage(PAGE_ORDER[nextIndex] ?? "home");
   }
 
   function navigateTo(page: PageName) {
@@ -49,7 +53,7 @@ export default function RootPagerScreen() {
     }
 
     scrollRef.current?.scrollTo({
-      x: page === "home" ? width : 0,
+      x: getPageOffset(page, width),
       animated: true,
     });
     setActivePage(page);
@@ -62,6 +66,7 @@ export default function RootPagerScreen() {
         horizontal
         pagingEnabled
         directionalLockEnabled
+        keyboardShouldPersistTaps="handled"
         decelerationRate="fast"
         showsHorizontalScrollIndicator={false}
         bounces={false}
@@ -73,26 +78,30 @@ export default function RootPagerScreen() {
           <InsightsScreen onNavigateHome={() => navigateTo("home")} />
         </View>
         <View style={[styles.page, { width }]}>
-          <HomeScreen />
+          <HomeScreen
+            onNavigateEntries={() => navigateTo("entries")}
+            onNavigateInsights={() => navigateTo("insights")}
+          />
+        </View>
+        <View style={[styles.page, { width }]}>
+          <EntriesScreen />
         </View>
       </ScrollView>
 
       <View pointerEvents="none" style={styles.pageIndicator}>
-        <View
-          style={[
-            styles.pageDot,
-            activePage === "insights" && styles.pageDotActive,
-          ]}
-        />
-        <View
-          style={[
-            styles.pageDot,
-            activePage === "home" && styles.pageDotActive,
-          ]}
-        />
+        {PAGE_ORDER.map((page) => (
+          <View
+            key={page}
+            style={[styles.pageDot, activePage === page && styles.pageDotActive]}
+          />
+        ))}
       </View>
     </View>
   );
+}
+
+function getPageOffset(page: PageName, width: number) {
+  return PAGE_ORDER.indexOf(page) * width;
 }
 
 const styles = StyleSheet.create({
