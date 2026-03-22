@@ -20,6 +20,11 @@ import {
   getEntryById,
   updateEntry,
 } from "../../src/modules/journal/repository";
+import {
+  generateEntryTitle,
+  hasInsightsConfig,
+} from "../../src/modules/insights/openai";
+import { formatEntryTitle as formatDefaultTitle } from "../../src/lib/date";
 import type { EntryDetail } from "../../src/modules/journal/types";
 import { colors } from "../../src/theme";
 
@@ -106,12 +111,46 @@ export default function EntryDetailScreen() {
       await saveChanges(entry.id, title, titleEmoji, body);
     }
 
+    if (entry && hasInsightsConfig()) {
+      const needsTitle =
+        body.trim().length > 0 &&
+        (!titleEmoji.trim() || title.trim() === formatDefaultTitle(entry.createdAt));
+
+      if (needsTitle) {
+        void autoGenerateTitle(entry.id, body, entry.createdAt);
+      }
+    }
+
     if (navigation.canGoBack()) {
       navigation.goBack();
       return;
     }
 
     router.replace("/");
+  }
+
+  async function autoGenerateTitle(
+    entryId: string,
+    entryBody: string,
+    createdAt: Date,
+  ) {
+    try {
+      const titlePackage = await generateEntryTitle({
+        id: entryId,
+        createdAt,
+        source: "manual",
+        title: formatDefaultTitle(createdAt),
+        body: entryBody,
+      });
+
+      await updateEntry(db, entryId, {
+        title: titlePackage.title || formatDefaultTitle(createdAt),
+        titleEmoji: titlePackage.emoji || "",
+        body: entryBody,
+      });
+    } catch (error) {
+      console.error("Auto-generate title failed", error);
+    }
   }
 
   if (!entry) {

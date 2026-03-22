@@ -10,7 +10,6 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { PaperRow } from "../../components/notebook";
 import { formatLongDay } from "../../lib/date";
 import { listDailySummaries, listEntries } from "./repository";
 import type { DailySummary, EntryListItem } from "./types";
@@ -60,46 +59,41 @@ export default function EntriesScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          {days.map((day) => (
-            <Pressable
-              key={day.date}
-              onPress={() => router.push(`/day/${day.date}`)}
-              style={({ pressed }) => [pressed && styles.rowPressed]}
-            >
-              <PaperRow style={styles.dayRow}>
-                <View style={styles.dayLedgerRow}>
-                  <View style={styles.dayColumn}>
-                    <Text style={styles.dayDate}>{formatShortDate(day.date)}</Text>
-                    <Text style={styles.dayWeekday}>{formatWeekday(day.date)}</Text>
-                  </View>
+          {days.map((day, index) => (
+            <View key={day.date} style={styles.dayRow}>
+              {index > 0 ? <View style={styles.daySeparator} /> : null}
+              <Text style={styles.dayDate}>
+                {formatWeekday(day.date)}, {formatShortDate(day.date)}
+              </Text>
 
-                  <View style={styles.dayDivider} />
-
-                  {entriesByDay[day.date]?.length ? (
-                    <View style={styles.entryList}>
-                      {entriesByDay[day.date].map((entry) => (
-                        <View key={entry.id} style={styles.entryPreviewRow}>
-                          <Text numberOfLines={1} style={styles.entryTitle}>
-                            {formatEntryTitle(entry)}
+              {entriesByDay[day.date]?.length ? (
+                <View style={styles.entryList}>
+                  {entriesByDay[day.date].map((entry) => (
+                    <Pressable
+                      key={entry.id}
+                      onPress={() => router.push(`/entry/${entry.id}`)}
+                      style={({ pressed }) => [styles.entryRow, pressed && styles.rowPressed]}
+                    >
+                      <Text style={styles.entryEmoji}>
+                        {entry.titleEmoji?.trim() || "\u00b7"}
+                      </Text>
+                      <View style={styles.entryContent}>
+                        <Text numberOfLines={1} style={styles.entryTitle}>
+                          {entry.title}
+                        </Text>
+                        {entry.body.trim() ? (
+                          <Text numberOfLines={1} style={styles.entryPreview}>
+                            {entry.body.trim()}
                           </Text>
-                          {entry.body.trim() ? (
-                            <Text numberOfLines={2} style={styles.dayPreview}>
-                              {entry.body.trim()}
-                            </Text>
-                          ) : (
-                            <Text style={styles.dayPreviewMuted}>Empty entry</Text>
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  ) : (
-                    <View style={styles.entryList}>
-                      <Text style={styles.dayPreviewMuted}>No journal entries saved.</Text>
-                    </View>
-                  )}
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  ))}
                 </View>
-              </PaperRow>
-            </Pressable>
+              ) : (
+                <Text style={styles.dayPreviewMuted}>No entries</Text>
+              )}
+            </View>
           ))}
 
           {days.length === 0 ? (
@@ -147,15 +141,6 @@ function groupEntriesByDay(entries: EntryListItem[]) {
   return grouped;
 }
 
-function formatEntryTitle(entry: EntryListItem) {
-  const emoji = entry.titleEmoji?.trim();
-
-  if (emoji) {
-    return `${emoji} ${entry.title}`;
-  }
-
-  return entry.title;
-}
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -189,68 +174,68 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingTop: 4,
-    paddingBottom: 18,
+    paddingTop: 8,
+    paddingBottom: 24,
+    paddingHorizontal: 18,
+    gap: 22,
   },
   rowPressed: {
     opacity: 0.82,
   },
   dayRow: {
-    backgroundColor: colors.background,
+    gap: 8,
   },
-  dayLedgerRow: {
-    flexDirection: "row",
-    alignItems: "stretch",
-    gap: 10,
-  },
-  dayColumn: {
-    width: 56,
-    alignItems: "flex-end",
-    paddingTop: 2,
-    gap: 1,
+  daySeparator: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: colors.rule,
+    alignSelf: "center",
+    marginBottom: 4,
   },
   dayDate: {
-    color: colors.text,
-    fontSize: 13,
-    lineHeight: 15,
-    fontWeight: "700",
-    textAlign: "right",
-  },
-  dayWeekday: {
-    color: colors.text,
-    fontSize: 12,
-    lineHeight: 14,
-    textAlign: "right",
-  },
-  dayDivider: {
-    width: StyleSheet.hairlineWidth,
-    alignSelf: "stretch",
-    backgroundColor: colors.rule,
+    color: colors.muted,
+    fontSize: 11,
+    letterSpacing: 1.2,
+    fontFamily: "Courier",
+    textTransform: "uppercase",
   },
   entryList: {
-    flex: 1,
-    gap: 8,
-    paddingTop: 1,
+    gap: 12,
   },
-  entryPreviewRow: {
-    gap: 1,
+  entryRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  entryEmoji: {
+    fontSize: 16,
+    lineHeight: 22,
+    width: 24,
+    textAlign: "center",
+    color: colors.muted,
+  },
+  entryContent: {
+    flex: 1,
+    gap: 2,
   },
   entryTitle: {
     color: colors.text,
-    fontSize: 14,
-    lineHeight: 17,
-    fontWeight: "700",
-    letterSpacing: -0.3,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "300",
+    letterSpacing: -0.4,
   },
-  dayPreview: {
-    color: colors.text,
-    fontSize: 12,
-    lineHeight: 15,
+  entryPreview: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 17,
   },
   dayPreviewMuted: {
     color: colors.muted,
-    fontSize: 12,
-    lineHeight: 15,
+    fontSize: 13,
+    lineHeight: 18,
+    paddingLeft: 34,
   },
   emptyText: {
     color: colors.muted,

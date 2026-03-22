@@ -11,7 +11,11 @@ import {
 } from "../src/components/notebook";
 import { formatCompactDate, formatElapsed } from "../src/lib/date";
 import { useWalkCapture } from "../src/modules/capture/useWalkCapture";
-import { createWalkEntry } from "../src/modules/journal/repository";
+import { createWalkEntry, updateEntry } from "../src/modules/journal/repository";
+import {
+  generateEntryTitle,
+  hasInsightsConfig,
+} from "../src/modules/insights/openai";
 import {
   getStepPollingIntervalMs,
   getTodayStepSnapshot,
@@ -156,6 +160,18 @@ export default function WalkScreen() {
       });
 
       if (entry) {
+        if (hasInsightsConfig() && session.transcript.trim()) {
+          void generateEntryTitle(entry).then((titlePackage) => {
+            void updateEntry(db, entry.id, {
+              title: titlePackage.title || entry.title,
+              titleEmoji: titlePackage.emoji || "",
+              body: entry.body,
+            });
+          }).catch((error) => {
+            console.error("Auto-generate walk title failed", error);
+          });
+        }
+
         router.replace(`/entry/${entry.id}`);
         return;
       }
