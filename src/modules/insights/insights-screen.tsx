@@ -71,7 +71,7 @@ export default function InsightsScreen({
         setEntries(loadedEntries);
         setMessages(loadedMessages);
 
-        if (aiReady && loadedEntries.length > 0 && loadedMessages.length === 0) {
+        if (aiReady && loadedEntries.length > 0) {
           const cachedPreview = peekCachedReflection(loadedEntries, "30d");
 
           if (cachedPreview) {
@@ -311,7 +311,7 @@ export default function InsightsScreen({
         >
           <View style={styles.scrollMain}>
             <View style={styles.contentStack}>
-              {entries.length > 0 ? (
+              {entries.length > 0 && messages.length === 0 ? (
                 <View style={styles.previewCard}>
                   <Text style={styles.previewEyebrow}>Top Of Mind</Text>
                   <Text numberOfLines={5} style={styles.previewBody}>
