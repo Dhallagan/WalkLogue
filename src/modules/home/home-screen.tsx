@@ -1,5 +1,6 @@
-import { startTransition, useCallback, useMemo, useState } from "react";
+import { startTransition, useCallback, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +14,10 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { PaperRecordButton } from "../../components/notebook";
 import { formatLongDay } from "../../lib/date";
+import {
+  countUtcEntries,
+  migrateUtcToLocal,
+} from "../journal/repository";
 import {
   backfillMissingTitles,
   backfillPeople,
@@ -103,6 +108,7 @@ export default function HomeScreen({
   const [dailyHomeCards, setDailyHomeCards] = useState<DailyHomeCards | null>(
     homeScreenMemoryState.dailyHomeCards,
   );
+  const hasCheckedUtcRef = useRef(false);
   const todayLabel = formatLongDay(new Date());
   const aiReady = hasInsightsConfig();
 
@@ -157,6 +163,11 @@ export default function HomeScreen({
 
       if (aiReady) {
         void runPeopleBackfill();
+      }
+
+      if (!hasCheckedUtcRef.current) {
+        hasCheckedUtcRef.current = true;
+        void checkUtcTimestamps();
       }
     } catch (error) {
       console.error("Failed to load Home", error);
@@ -218,6 +229,31 @@ export default function HomeScreen({
       );
     } catch (error) {
       console.error("People backfill failed", error);
+    }
+  }, [db]);
+
+  const checkUtcTimestamps = useCallback(async () => {
+    try {
+      const count = await countUtcEntries(db);
+      if (count === 0) return;
+
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      Alert.alert(
+        "Fix Entry Timestamps",
+        `${count} ${count === 1 ? "entry" : "entries"} stored in UTC. Convert to your current timezone (${tz})?`,
+        [
+          { text: "Not Now", style: "cancel" },
+          {
+            text: "Fix",
+            onPress: async () => {
+              const fixed = await migrateUtcToLocal(db);
+              Alert.alert("Done", `Converted ${fixed} ${fixed === 1 ? "entry" : "entries"} to ${tz}.`);
+            },
+          },
+        ],
+      );
+    } catch (error) {
+      console.error("UTC check failed", error);
     }
   }, [db]);
 

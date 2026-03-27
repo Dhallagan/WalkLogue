@@ -1,6 +1,10 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-import { formatDayKey, formatEntryTitle } from "../../lib/date";
+import {
+  formatDayKey,
+  formatEntryTitle,
+  formatLocalISOString,
+} from "../../lib/date";
 import type {
   DailySteps,
   ExtractedPerson,
@@ -104,6 +108,53 @@ export async function initializeDatabase(db: SQLiteDatabase) {
       ADD COLUMN people_extracted_at TEXT;
     `);
   }
+
+}
+
+export async function countUtcEntries(db: SQLiteDatabase) {
+  const row = await db.getFirstAsync<{ c: number }>(
+    `SELECT COUNT(*) as c FROM journal_entries WHERE created_at LIKE '%Z'`,
+  );
+  return row?.c ?? 0;
+}
+
+export async function migrateUtcToLocal(db: SQLiteDatabase) {
+  const utcEntries = await db.getAllAsync<{ id: string; created_at: string }>(
+    `SELECT id, created_at FROM journal_entries WHERE created_at LIKE '%Z'`,
+  );
+
+  let fixed = 0;
+
+  await db.withTransactionAsync(async () => {
+    for (const row of utcEntries) {
+      const local = formatLocalISOString(new Date(row.created_at));
+      await db.runAsync(
+        `UPDATE journal_entries SET created_at = ? WHERE id = ?`,
+        local,
+        row.id,
+      );
+      fixed++;
+    }
+
+    const utcSessions = await db.getAllAsync<{
+      id: string;
+      started_at: string;
+      ended_at: string;
+    }>(
+      `SELECT id, started_at, ended_at FROM walk_sessions WHERE started_at LIKE '%Z'`,
+    );
+
+    for (const row of utcSessions) {
+      await db.runAsync(
+        `UPDATE walk_sessions SET started_at = ?, ended_at = ? WHERE id = ?`,
+        formatLocalISOString(new Date(row.started_at)),
+        formatLocalISOString(new Date(row.ended_at)),
+        row.id,
+      );
+    }
+  });
+
+  return fixed;
 }
 
 export async function listEntries(db: SQLiteDatabase): Promise<EntryListItem[]> {
@@ -183,7 +234,7 @@ export async function createManualEntry(db: SQLiteDatabase) {
       VALUES (?, ?, ?, ?, ?, ?, NULL)
     `,
     entry.id,
-    entry.createdAt.toISOString(),
+    formatLocalISOString(entry.createdAt),
     entry.source,
     entry.title,
     null,
@@ -222,7 +273,7 @@ export async function createWalkEntry(
         VALUES (?, ?, 'walk', ?, ?, ?, ?)
       `,
       entryId,
-      createdAt.toISOString(),
+      formatLocalISOString(createdAt),
       formatEntryTitle(createdAt),
       null,
       input.body.trim(),
@@ -235,8 +286,8 @@ export async function createWalkEntry(
         VALUES (?, ?, ?, ?, ?, ?)
       `,
       sessionId,
-      input.startedAt.toISOString(),
-      input.endedAt.toISOString(),
+      formatLocalISOString(input.startedAt),
+      formatLocalISOString(input.endedAt),
       input.durationSec,
       input.stepCount,
       entryId,
@@ -282,6 +333,18 @@ export async function updateEntryTitle(
     `,
     updates.title.trim() || formatEntryTitle(new Date()),
     updates.titleEmoji?.trim() || null,
+    id,
+  );
+}
+
+export async function updateEntryDate(
+  db: SQLiteDatabase,
+  id: string,
+  date: Date,
+) {
+  await db.runAsync(
+    `UPDATE journal_entries SET created_at = ? WHERE id = ?`,
+    formatLocalISOString(date),
     id,
   );
 }

@@ -9,7 +9,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -218,13 +217,6 @@ export default function InsightsScreen({
     }
   }
 
-  const handleOpenProfile = useCallback(() => {
-    router.push("/profile");
-  }, [router]);
-
-  const handleOpenSettings = useCallback(() => {
-    router.push("/settings");
-  }, [router]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
@@ -234,32 +226,6 @@ export default function InsightsScreen({
       >
         <View style={styles.headerRow}>
           <Text style={styles.title}>Ask Your Journal</Text>
-          <View style={styles.headerIcons}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Profile"
-              hitSlop={8}
-              onPress={handleOpenProfile}
-              style={({ pressed }) => [
-                styles.iconButton,
-                pressed && styles.iconButtonPressed,
-              ]}
-            >
-              <Ionicons name="person-outline" size={20} color={colors.muted} />
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Settings"
-              hitSlop={8}
-              onPress={handleOpenSettings}
-              style={({ pressed }) => [
-                styles.iconButton,
-                pressed && styles.iconButtonPressed,
-              ]}
-            >
-              <Ionicons name="settings-outline" size={20} color={colors.muted} />
-            </Pressable>
-          </View>
         </View>
 
         <ScrollView
@@ -273,117 +239,113 @@ export default function InsightsScreen({
             }
           }}
         >
-          <View style={styles.scrollMain}>
-            <View style={styles.contentStack}>
-              {entries.length > 0 ? (
-                <View style={styles.previewCard}>
-                  <Text style={styles.previewEyebrow}>Top Of Mind</Text>
-                  <Text numberOfLines={5} style={styles.previewBody}>
-                    {!aiReady
-                      ? "Open Profile to see the journal overview."
-                      : isLoadingProfilePreview
-                        ? "Reading the past month..."
-                        : profilePreviewError
-                          ? profilePreviewError
-                          : profilePreview}
-                  </Text>
-                  {aiReady && !isLoadingProfilePreview && !profilePreviewError ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => router.push("/profile")}
-                      style={({ pressed }) => [
-                        styles.previewLink,
-                        pressed && styles.previewLinkPressed,
-                      ]}
-                    >
-                      <Text style={styles.previewLinkText}>Read more</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
+          {entries.length > 0 ? (
+            <View style={styles.previewCard}>
+              <Text style={styles.previewEyebrow}>Top Of Mind</Text>
+              <Text numberOfLines={5} style={styles.previewBody}>
+                {!aiReady
+                  ? "Open Profile to see the journal overview."
+                  : isLoadingProfilePreview
+                    ? "Reading the past month..."
+                    : profilePreviewError
+                      ? profilePreviewError
+                      : profilePreview}
+              </Text>
+              {aiReady && !isLoadingProfilePreview && !profilePreviewError ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => router.push("/profile")}
+                  style={({ pressed }) => [
+                    styles.previewLink,
+                    pressed && styles.previewLinkPressed,
+                  ]}
+                >
+                  <Text style={styles.previewLinkText}>Read more</Text>
+                </Pressable>
               ) : null}
-
-              {messages.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <View style={styles.starterList}>
-                    {starterPrompts.map((prompt) => (
-                      <Pressable
-                        key={prompt}
-                        style={styles.promptChip}
-                        onPress={() => void handleSendQuestion(prompt)}
-                      >
-                        <Text style={styles.promptText}>{prompt}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.chatThread}>
-                  {messages.map((message) => (
-                    <View
-                      key={message.id}
-                      style={[
-                        styles.chatBubble,
-                        message.role === "user"
-                          ? styles.userBubble
-                          : styles.assistantBubble,
-                      ]}
-                    >
-                      <Text style={styles.chatRole}>
-                        {message.role === "user" ? "You" : "Journal"}
-                      </Text>
-                      <Text style={styles.chatText}>{message.content}</Text>
-                    </View>
-                  ))}
-                  {isSending ? (
-                    <View
-                      style={[styles.chatBubble, styles.assistantBubble, styles.thinkingBubble]}
-                    >
-                      <Text style={styles.chatRole}>Journal</Text>
-                      <Text style={styles.thinkingText}>
-                        Thinking{".".repeat(thinkingFrame + 1)}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-              )}
-
-              {!aiReady ? (
-                <Text style={styles.emptyText}>
-                  Chat needs an OpenAI key configured through env. Production should move
-                  this behind a proxy.
-                </Text>
-              ) : null}
-
-              {entries.length === 0 ? (
-                <Text style={styles.emptyText}>
-                  Add a few entries first. Then this screen can answer questions about
-                  what feels latest, repeated, unresolved, or most important.
-                </Text>
-              ) : null}
-
-              {chatError ? <Text style={styles.errorText}>{chatError}</Text> : null}
             </View>
+          ) : null}
 
-            <View style={styles.composerShell}>
-              <View style={styles.composer}>
-                <TextInput
-                  value={chatDraft}
-                  onChangeText={(nextValue) => {
-                    chatDraftRef.current = nextValue;
-                    setChatDraft(nextValue);
-                  }}
-                  onSubmitEditing={() => void handleSendQuestion()}
-                  placeholder="Ask your journal anything."
-                  placeholderTextColor={colors.muted}
-                  multiline
-                  returnKeyType="send"
-                  submitBehavior="submit"
-                  style={styles.chatInput}
-                />
+          {messages.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={styles.starterList}>
+                {starterPrompts.map((prompt) => (
+                  <Pressable
+                    key={prompt}
+                    style={styles.promptChip}
+                    onPress={() => void handleSendQuestion(prompt)}
+                  >
+                    <Text style={styles.promptText}>{prompt}</Text>
+                  </Pressable>
+                ))}
               </View>
             </View>
-          </View>
+          ) : (
+            <View style={styles.chatThread}>
+              {messages.map((message) => (
+                <View
+                  key={message.id}
+                  style={[
+                    styles.chatBubble,
+                    message.role === "user"
+                      ? styles.userBubble
+                      : styles.assistantBubble,
+                  ]}
+                >
+                  <Text style={styles.chatRole}>
+                    {message.role === "user" ? "You" : "Journal"}
+                  </Text>
+                  <Text style={styles.chatText}>{message.content}</Text>
+                </View>
+              ))}
+              {isSending ? (
+                <View
+                  style={[styles.chatBubble, styles.assistantBubble, styles.thinkingBubble]}
+                >
+                  <Text style={styles.chatRole}>Journal</Text>
+                  <Text style={styles.thinkingText}>
+                    Thinking{".".repeat(thinkingFrame + 1)}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          )}
+
+          {!aiReady ? (
+            <Text style={styles.emptyText}>
+              Chat needs an OpenAI key configured through env. Production should move
+              this behind a proxy.
+            </Text>
+          ) : null}
+
+          {entries.length === 0 ? (
+            <Text style={styles.emptyText}>
+              Add a few entries first. Then this screen can answer questions about
+              what feels latest, repeated, unresolved, or most important.
+            </Text>
+          ) : null}
+
+          {chatError ? <Text style={styles.errorText}>{chatError}</Text> : null}
         </ScrollView>
+
+        <View style={styles.composerShell}>
+          <View style={styles.composer}>
+            <TextInput
+              value={chatDraft}
+              onChangeText={(nextValue) => {
+                chatDraftRef.current = nextValue;
+                setChatDraft(nextValue);
+              }}
+              onSubmitEditing={() => void handleSendQuestion()}
+              placeholder="Ask your journal anything."
+              placeholderTextColor={colors.muted}
+              multiline
+              returnKeyType="send"
+              submitBehavior="submit"
+              style={styles.chatInput}
+            />
+          </View>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -414,20 +376,6 @@ const styles = StyleSheet.create({
     letterSpacing: -1.1,
     marginTop: 2,
   },
-  headerIcons: {
-    flexDirection: "row",
-    gap: 6,
-  },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconButtonPressed: {
-    opacity: 0.5,
-  },
   scrollBody: {
     flex: 1,
     marginTop: spacing.md,
@@ -435,14 +383,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingBottom: spacing.sm,
-  },
-  scrollMain: {
-    flexGrow: 1,
-    gap: spacing.md,
-  },
-  contentStack: {
-    flexGrow: 1,
-    gap: spacing.md,
   },
   emptyState: {
     gap: spacing.md,

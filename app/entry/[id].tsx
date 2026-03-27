@@ -7,6 +7,9 @@ import {
   TextInput,
   View,
 } from "react-native";
+import DateTimePicker, {
+  type DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
 import {
   useFocusEffect,
   useLocalSearchParams,
@@ -30,6 +33,7 @@ import {
   getExistingPeopleContext,
   linkPeopleToEntry,
   updateEntry,
+  updateEntryDate,
   updateEntryTitle,
   updatePerson,
 } from "../../src/modules/journal/repository";
@@ -59,6 +63,7 @@ export default function EntryDetailScreen() {
   const [prevId, setPrevId] = useState<string | null>(null);
   const [nextId, setNextId] = useState<string | null>(null);
   const [editing, setEditing] = useState(id === "new");
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const dirtyRef = useRef(false);
   const hasCreatedManualRef = useRef(false);
   const emojiInputRef = useRef<TextInput>(null);
@@ -136,6 +141,14 @@ export default function EntryDetailScreen() {
       await saveChanges(entry.id, title, titleEmoji, body);
     }
     router.replace(`/entry/${targetId}`);
+  }
+
+  async function handleDateChange(event: DateTimePickerEvent, selectedDate?: Date) {
+    setShowDatePicker(false);
+    if (event.type === "set" && selectedDate && entry) {
+      await updateEntryDate(db, entry.id, selectedDate);
+      setEntry({ ...entry, createdAt: selectedDate });
+    }
   }
 
   function handleEdit() {
@@ -277,9 +290,14 @@ export default function EntryDetailScreen() {
             >
               <Text style={styles.navArrow}>‹</Text>
             </Pressable>
-            <Text style={styles.dateText}>
-              {formatCompactDate(entry.createdAt)}
-            </Text>
+            <Pressable
+              onPress={editing ? () => setShowDatePicker(!showDatePicker) : undefined}
+              disabled={!editing}
+            >
+              <Text style={[styles.dateText, editing && styles.dateTextEditable]}>
+                {formatCompactDate(entry.createdAt)}
+              </Text>
+            </Pressable>
             <Pressable
               hitSlop={12}
               onPress={() => nextId && void navigateTo(nextId)}
@@ -289,6 +307,15 @@ export default function EntryDetailScreen() {
               <Text style={styles.navArrow}>›</Text>
             </Pressable>
           </View>
+          {showDatePicker ? (
+            <DateTimePicker
+              value={entry.createdAt}
+              mode="datetime"
+              display="spinner"
+              onChange={handleDateChange}
+              style={styles.datePicker}
+            />
+          ) : null}
           <Text style={styles.metaText}>
             {formatEntryMeta(entry.createdAt)}
           </Text>
@@ -457,6 +484,15 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: "300",
     letterSpacing: -0.6,
+  },
+  dateTextEditable: {
+    textDecorationLine: "underline",
+    textDecorationColor: colors.border,
+  },
+  datePicker: {
+    height: 160,
+    marginTop: -4,
+    marginBottom: -4,
   },
   metaText: {
     color: colors.muted,
