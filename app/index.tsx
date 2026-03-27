@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Keyboard,
   ScrollView,
   StyleSheet,
   useWindowDimensions,
@@ -44,7 +45,11 @@ export default function RootPagerScreen() {
 
     const offsetX = event.nativeEvent.contentOffset.x;
     const nextIndex = Math.round(offsetX / width);
-    setActivePage(PAGE_ORDER[nextIndex] ?? "home");
+    const nextPage = PAGE_ORDER[nextIndex] ?? "home";
+    if (nextPage !== activePage) {
+      Keyboard.dismiss();
+    }
+    setActivePage(nextPage);
   }
 
   function navigateTo(page: PageName) {

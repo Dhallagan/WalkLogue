@@ -1,8 +1,5 @@
 import { startTransition, useCallback, useMemo, useState } from "react";
 import {
-  ActionSheetIOS,
-  Alert,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +9,7 @@ import {
 import { useFocusEffect, useRouter, type Href } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 
 import { PaperRecordButton } from "../../components/notebook";
 import { formatLongDay } from "../../lib/date";
@@ -245,37 +243,12 @@ export default function HomeScreen({
     [aiReady, dailyHomeCards, entries, stepPermission],
   );
 
-  const handleOpenMenu = useCallback(() => {
-    const actions = [
-      { label: "Profile", onPress: () => router.push("/profile") },
-      { label: "Settings", onPress: () => router.push("/settings") },
-    ];
+  const handleOpenProfile = useCallback(() => {
+    router.push("/profile");
+  }, [router]);
 
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: [...actions.map((action) => action.label), "Cancel"],
-          cancelButtonIndex: actions.length,
-        },
-        (selectedIndex) => {
-          if (selectedIndex >= 0 && selectedIndex < actions.length) {
-            actions[selectedIndex]?.onPress();
-          }
-        },
-      );
-      return;
-    }
-
-    Alert.alert("More", undefined, [
-      ...actions.map((action) => ({
-        text: action.label,
-        onPress: action.onPress,
-      })),
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-    ]);
+  const handleOpenSettings = useCallback(() => {
+    router.push("/settings");
   }, [router]);
 
   const handleOpenLatestEntry = useCallback(() => {
@@ -294,18 +267,32 @@ export default function HomeScreen({
             <Text style={styles.title}>Today</Text>
             <Text style={styles.dateText}>{todayLabel}</Text>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="More options"
-            hitSlop={10}
-            onPress={handleOpenMenu}
-            style={({ pressed }) => [
-              styles.menuButton,
-              pressed && styles.menuButtonPressed,
-            ]}
-          >
-            <Text style={styles.menuButtonText}>...</Text>
-          </Pressable>
+          <View style={styles.headerIcons}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Profile"
+              hitSlop={8}
+              onPress={handleOpenProfile}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && styles.iconButtonPressed,
+              ]}
+            >
+              <Ionicons name="person-outline" size={20} color={colors.muted} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Settings"
+              hitSlop={8}
+              onPress={handleOpenSettings}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && styles.iconButtonPressed,
+              ]}
+            >
+              <Ionicons name="settings-outline" size={20} color={colors.muted} />
+            </Pressable>
+          </View>
         </View>
 
         <ScrollView
@@ -617,27 +604,21 @@ const styles = StyleSheet.create({
     fontWeight: "300",
     letterSpacing: -0.6,
   },
-  menuButton: {
-    minWidth: 42,
-    height: 42,
-    marginTop: 14,
-    marginRight: 18,
+  headerIcons: {
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 12,
+    marginRight: 14,
+  },
+  iconButton: {
+    width: 36,
+    height: 36,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
   },
-  menuButtonPressed: {
-    backgroundColor: colors.accentSoft,
-  },
-  menuButtonText: {
-    color: colors.muted,
-    fontSize: 20,
-    lineHeight: 20,
-    marginTop: -6,
-    letterSpacing: 1.2,
+  iconButtonPressed: {
+    opacity: 0.5,
   },
   bodyScroll: {
     flex: 1,

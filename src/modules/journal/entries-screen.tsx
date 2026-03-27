@@ -1,12 +1,12 @@
-import { startTransition, useCallback, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Animated,
   PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -22,7 +22,11 @@ export default function EntriesScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const [days, setDays] = useState<DailySummary[]>([]);
+  const [allEntries, setAllEntries] = useState<EntryListItem[]>([]);
   const [entriesByDay, setEntriesByDay] = useState<Record<string, EntryListItem[]>>({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<EntryListItem | null>(null);
+  const pendingDeleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openRowRef = useRef<{ close: () => void } | null>(null);
 
   const loadDays = useCallback(async () => {
@@ -36,6 +40,7 @@ export default function EntriesScreen() {
 
       startTransition(() => {
         setDays(loadedDays);
+        setAllEntries(loadedEntries);
         setEntriesByDay(nextEntriesByDay);
       });
     } catch (error) {
@@ -49,23 +54,70 @@ export default function EntriesScreen() {
     }, [loadDays]),
   );
 
+  const filteredEntries = useMemo(() => {
+    if (!pendingDelete) return allEntries;
+    return allEntries.filter((entry) => entry.id !== pendingDelete.id);
+  }, [allEntries, pendingDelete]);
+
+  const filteredEntriesByDay = useMemo(
+    () => groupEntriesByDay(filteredEntries),
+    [filteredEntries],
+  );
+
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return null;
+
+    const matches = filteredEntries.filter((entry) => {
+      const text = `${entry.title} ${entry.titleEmoji ?? ""} ${entry.body}`.toLowerCase();
+      return text.includes(query);
+    });
+
+    return groupEntriesByDay(matches);
+  }, [filteredEntries, searchQuery]);
+
+  const isSearching = searchQuery.trim().length > 0;
+  const visibleDays = isSearching
+    ? days.filter((day) => searchResults && searchResults[day.date]?.length)
+    : days;
+  const visibleEntriesByDay = isSearching && searchResults ? searchResults : filteredEntriesByDay;
+
   function handleRowOpen(handle: { close: () => void }) {
     openRowRef.current?.close();
     openRowRef.current = handle;
   }
 
+  useEffect(() => {
+    return () => {
+      if (pendingDeleteTimer.current) {
+        clearTimeout(pendingDeleteTimer.current);
+      }
+    };
+  }, []);
+
   function handleDelete(entry: EntryListItem) {
-    Alert.alert("Delete Entry", "This entry will be permanently removed.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          await deleteEntry(db, entry.id);
-          void loadDays();
-        },
-      },
-    ]);
+    if (pendingDeleteTimer.current) {
+      clearTimeout(pendingDeleteTimer.current);
+      if (pendingDelete) {
+        void deleteEntry(db, pendingDelete.id);
+      }
+    }
+
+    setPendingDelete(entry);
+    pendingDeleteTimer.current = setTimeout(async () => {
+      await deleteEntry(db, entry.id);
+      setPendingDelete(null);
+      pendingDeleteTimer.current = null;
+      void loadDays();
+    }, 4000);
+  }
+
+  function handleUndo() {
+    if (pendingDeleteTimer.current) {
+      clearTimeout(pendingDeleteTimer.current);
+      pendingDeleteTimer.current = null;
+    }
+    setPendingDelete(null);
   }
 
   return (
@@ -77,12 +129,25 @@ export default function EntriesScreen() {
           </View>
         </View>
 
+        <View style={styles.searchBar}>
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search entries"
+            placeholderTextColor={colors.muted}
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+            autoCorrect={false}
+            style={styles.searchInput}
+          />
+        </View>
+
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          {days.map((day, index) => (
+          {visibleDays.map((day, index) => (
             <View key={day.date}>
               {index > 0 ? <View style={styles.dayDivider} /> : null}
               <View style={styles.dayRow}>
@@ -91,9 +156,9 @@ export default function EntriesScreen() {
                   <Text style={styles.dayWeekday}>{formatWeekday(day.date)}</Text>
                 </View>
 
-                {entriesByDay[day.date]?.length ? (
+                {visibleEntriesByDay[day.date]?.length ? (
                   <View style={styles.entryList}>
-                    {entriesByDay[day.date].map((entry) => (
+                    {visibleEntriesByDay[day.date].map((entry) => (
                       <SwipeDeleteRow
                         key={entry.id}
                         onDelete={() => handleDelete(entry)}
@@ -125,10 +190,30 @@ export default function EntriesScreen() {
             </View>
           ))}
 
-          {days.length === 0 ? (
+          {isSearching && visibleDays.length === 0 ? (
+            <Text style={styles.emptyText}>No entries matching "{searchQuery.trim()}"</Text>
+          ) : !isSearching && days.length === 0 ? (
             <Text style={styles.emptyText}>No history yet.</Text>
           ) : null}
         </ScrollView>
+
+        {pendingDelete ? (
+          <View style={styles.undoToast}>
+            <Text style={styles.undoToastText} numberOfLines={1}>
+              Deleted "{pendingDelete.title}"
+            </Text>
+            <Pressable
+              hitSlop={8}
+              onPress={handleUndo}
+              style={({ pressed }) => [
+                styles.undoButton,
+                pressed && styles.undoButtonPressed,
+              ]}
+            >
+              <Text style={styles.undoButtonText}>Undo</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
     </SafeAreaView>
   );
@@ -150,8 +235,8 @@ function formatShortDate(dayKey: string) {
 }
 
 function formatWeekday(dayKey: string) {
-  const label = formatDayLabel(dayKey);
-  return label.split(",")[0] ?? label;
+  const parsed = new Date(`${dayKey}T12:00:00`);
+  return parsed.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
 }
 
 const SWIPE_ACTION_WIDTH = 80;
@@ -341,13 +426,28 @@ const styles = StyleSheet.create({
     fontWeight: "300",
     letterSpacing: -1.2,
   },
+  searchBar: {
+    paddingHorizontal: 18,
+    paddingBottom: 8,
+  },
+  searchInput: {
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    color: colors.text,
+    fontSize: 15,
+  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     paddingTop: 8,
     paddingBottom: 24,
-    paddingHorizontal: 18,
+    paddingLeft: 10,
+    paddingRight: 18,
     gap: 22,
   },
   rowPressed: {
@@ -371,13 +471,13 @@ const styles = StyleSheet.create({
   },
   dayDate: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: "600",
     textAlign: "right",
   },
   dayWeekday: {
     color: colors.muted,
-    fontSize: 11,
+    fontSize: 12,
     letterSpacing: 0.8,
     fontFamily: "Courier",
     textTransform: "uppercase",
@@ -427,5 +527,43 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     paddingHorizontal: 18,
     paddingTop: 8,
+  },
+  undoToast: {
+    position: "absolute",
+    bottom: 24,
+    left: 18,
+    right: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    backgroundColor: colors.accent,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  undoToastText: {
+    color: "#FFF8F2",
+    fontSize: 14,
+    flex: 1,
+  },
+  undoButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "rgba(255, 248, 242, 0.15)",
+  },
+  undoButtonPressed: {
+    backgroundColor: "rgba(255, 248, 242, 0.25)",
+  },
+  undoButtonText: {
+    color: "#FFF8F2",
+    fontSize: 14,
+    fontWeight: "600",
+    letterSpacing: 0.2,
   },
 });

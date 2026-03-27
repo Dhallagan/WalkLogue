@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActionSheetIOS,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,6 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -219,37 +218,12 @@ export default function InsightsScreen({
     }
   }
 
-  const handleOpenOverflow = useCallback(() => {
-    const actions = [
-      { label: "Profile", onPress: () => router.push("/profile") },
-      { label: "Settings", onPress: () => router.push("/settings") },
-    ];
+  const handleOpenProfile = useCallback(() => {
+    router.push("/profile");
+  }, [router]);
 
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: [...actions.map((action) => action.label), "Cancel"],
-          cancelButtonIndex: actions.length,
-        },
-        (selectedIndex) => {
-          if (selectedIndex >= 0 && selectedIndex < actions.length) {
-            actions[selectedIndex]?.onPress();
-          }
-        },
-      );
-      return;
-    }
-
-    Alert.alert("More", undefined, [
-      ...actions.map((action) => ({
-        text: action.label,
-        onPress: action.onPress,
-      })),
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-    ]);
+  const handleOpenSettings = useCallback(() => {
+    router.push("/settings");
   }, [router]);
 
   return (
@@ -260,18 +234,32 @@ export default function InsightsScreen({
       >
         <View style={styles.headerRow}>
           <Text style={styles.title}>Ask Your Journal</Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="More options"
-            hitSlop={10}
-            onPress={handleOpenOverflow}
-            style={({ pressed }) => [
-              styles.menuButton,
-              pressed && styles.menuButtonPressed,
-            ]}
-          >
-            <Text style={styles.menuButtonText}>...</Text>
-          </Pressable>
+          <View style={styles.headerIcons}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Profile"
+              hitSlop={8}
+              onPress={handleOpenProfile}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && styles.iconButtonPressed,
+              ]}
+            >
+              <Ionicons name="person-outline" size={20} color={colors.muted} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Settings"
+              hitSlop={8}
+              onPress={handleOpenSettings}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && styles.iconButtonPressed,
+              ]}
+            >
+              <Ionicons name="settings-outline" size={20} color={colors.muted} />
+            </Pressable>
+          </View>
         </View>
 
         <ScrollView
@@ -426,25 +414,19 @@ const styles = StyleSheet.create({
     letterSpacing: -1.1,
     marginTop: 2,
   },
-  menuButton: {
-    width: 40,
-    height: 40,
+  headerIcons: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  iconButton: {
+    width: 36,
+    height: 36,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
   },
-  menuButtonPressed: {
-    backgroundColor: colors.accentSoft,
-  },
-  menuButtonText: {
-    color: colors.muted,
-    fontSize: 20,
-    lineHeight: 20,
-    letterSpacing: 1.2,
-    marginTop: -6,
+  iconButtonPressed: {
+    opacity: 0.5,
   },
   scrollBody: {
     flex: 1,
