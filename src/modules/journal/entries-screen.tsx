@@ -16,9 +16,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { formatDayKey, formatLongDay } from "../../lib/date";
 import { deleteEntry, listDailySummaries, listEntries } from "./repository";
 import type { DailySummary, EntryListItem } from "./types";
-import { colors } from "../../theme";
+import { useTheme, useThemeColors } from "../../theme";
 
 export default function EntriesScreen() {
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const db = useSQLiteContext();
   const router = useRouter();
   const [days, setDays] = useState<DailySummary[]>([]);
@@ -161,6 +163,7 @@ export default function EntriesScreen() {
                     {visibleEntriesByDay[day.date].map((entry) => (
                       <SwipeDeleteRow
                         key={entry.id}
+                        backgroundColor={colors.background}
                         onDelete={() => handleDelete(entry)}
                         onOpen={handleRowOpen}
                         onPress={() => router.push(`/entry/${entry.id}`)}
@@ -184,7 +187,12 @@ export default function EntriesScreen() {
                     ))}
                   </View>
                 ) : (
-                  <Text style={styles.dayPreviewMuted}>No entries</Text>
+                  <Pressable
+                    onPress={() => router.push(`/walk?forDate=${day.date}`)}
+                    style={({ pressed }) => pressed ? styles.recallPressed : undefined}
+                  >
+                    <Text style={styles.dayPreviewMuted}>Record for this day</Text>
+                  </Pressable>
                 )}
               </View>
             </View>
@@ -244,11 +252,13 @@ const SWIPE_OPEN_THRESHOLD = SWIPE_ACTION_WIDTH * 0.45;
 
 function SwipeDeleteRow({
   children,
+  backgroundColor,
   onDelete,
   onOpen,
   onPress,
 }: {
   children: React.ReactNode;
+  backgroundColor: string;
   onDelete: () => void;
   onOpen: (handle: { close: () => void }) => void;
   onPress: () => void;
@@ -315,7 +325,7 @@ function SwipeDeleteRow({
   ).current;
 
   return (
-    <View style={swipeStyles.container}>
+    <View style={[swipeStyles.container, { backgroundColor }]}>
       <View style={swipeStyles.actionWrap}>
         <Pressable
           style={({ pressed }) => [
@@ -331,7 +341,7 @@ function SwipeDeleteRow({
         </Pressable>
       </View>
       <Animated.View
-        style={[swipeStyles.rowForeground, { transform: [{ translateX }] }]}
+        style={[swipeStyles.rowForeground, { backgroundColor, transform: [{ translateX }] }]}
         {...panResponder.panHandlers}
       >
         <Pressable
@@ -354,7 +364,6 @@ function SwipeDeleteRow({
 const swipeStyles = StyleSheet.create({
   container: {
     overflow: "hidden",
-    backgroundColor: colors.background,
   },
   actionWrap: {
     ...StyleSheet.absoluteFillObject,
@@ -376,9 +385,7 @@ const swipeStyles = StyleSheet.create({
     fontWeight: "600",
     letterSpacing: 0.2,
   },
-  rowForeground: {
-    backgroundColor: colors.background,
-  },
+  rowForeground: {},
 });
 
 function groupEntriesByDay(entries: EntryListItem[]) {
@@ -398,7 +405,8 @@ function groupEntriesByDay(entries: EntryListItem[]) {
 }
 
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
@@ -521,6 +529,9 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     paddingLeft: 34,
   },
+  recallPressed: {
+    opacity: 0.5,
+  },
   emptyText: {
     color: colors.muted,
     fontSize: 16,
@@ -567,3 +578,4 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 });
+}

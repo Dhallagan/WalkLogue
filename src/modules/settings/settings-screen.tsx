@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { File, Paths } from "expo-file-system";
@@ -6,6 +6,9 @@ import * as Sharing from "expo-sharing";
 import { useSQLiteContext } from "expo-sqlite";
 
 import { Screen } from "../../components/ui";
+import { useTheme, useThemeColors, type ThemeMode } from "../../theme";
+
+type ColorTokens = ReturnType<typeof useTheme>["colors"];
 import {
   ensureRecordingPermissions,
   getRecordingPermissionStatus,
@@ -32,7 +35,7 @@ import {
   updateEntryTitle,
 } from "../journal/repository";
 import type { EntryListItem } from "../journal/types";
-import { colors, layout, spacing } from "../../theme";
+import { layout, spacing } from "../../theme";
 
 type RecordingPermissionStatus =
   | "granted"
@@ -46,9 +49,20 @@ type SettingAction = {
   onPress: () => void;
 };
 
+const THEME_KEY = "walklog-theme-mode";
+const THEME_LABELS: Record<ThemeMode, string> = {
+  system: "Light",
+  light: "Light",
+  dark: "Dark",
+};
+const THEME_CYCLE: ThemeMode[] = ["light", "dark"];
+
 export default function SettingsScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { mode: currentThemeMode, setMode: setThemeMode } = useTheme();
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [microphoneStatus, setMicrophoneStatus] =
     useState<RecordingPermissionStatus>("undetermined");
   const [healthStatus, setHealthStatus] =
@@ -105,6 +119,13 @@ export default function SettingsScreen() {
       void loadPermissionState();
     }, [loadPermissionState]),
   );
+
+  function handleCycleTheme() {
+    const currentIndex = THEME_CYCLE.indexOf(currentThemeMode);
+    const nextIndex = (currentIndex + 1) % THEME_CYCLE.length;
+    const next = THEME_CYCLE[nextIndex] ?? "light";
+    setThemeMode(next);
+  }
 
   async function handleAllowMicrophone() {
     await ensureRecordingPermissions();
@@ -304,6 +325,17 @@ export default function SettingsScreen() {
       </View>
 
       <View style={styles.group}>
+        <Text style={styles.groupHeader}>Appearance</Text>
+        <View style={styles.groupCard}>
+          <SettingRow
+            label="Theme"
+            value={THEME_LABELS[currentThemeMode]}
+            onPress={handleCycleTheme}
+          />
+        </View>
+      </View>
+
+      <View style={styles.group}>
         <Text style={styles.groupHeader}>Data</Text>
         <View style={styles.groupCard}>
           <SettingRow
@@ -353,6 +385,8 @@ function SettingRow({
   onPress?: () => void;
   chevron?: boolean;
 }) {
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const content = (
     <View style={styles.row}>
       <View style={styles.rowLeft}>
@@ -397,7 +431,8 @@ function formatFitbitStatus(
   return formatStatus(status);
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ColorTokens) {
+  return StyleSheet.create({
   group: {
     gap: 6,
   },
@@ -462,3 +497,4 @@ const styles = StyleSheet.create({
     fontWeight: "300",
   },
 });
+}

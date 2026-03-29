@@ -1,6 +1,7 @@
 import { startTransition, useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,6 +12,7 @@ import { useFocusEffect, useRouter, type Href } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as SecureStore from "expo-secure-store";
 
 import { PaperRecordButton } from "../../components/notebook";
 import { formatLongDay } from "../../lib/date";
@@ -45,7 +47,17 @@ import {
   type StepPermissionStatus,
   type StepSource,
 } from "../steps/service";
-import { colors } from "../../theme";
+import {
+  buildInsightSnapshot,
+  type InsightSnapshot,
+} from "../insights/analysis";
+import { generateReflection, peekCachedReflection } from "../insights/openai";
+import { useTheme, useThemeColors } from "../../theme";
+
+type WeeklyDigest = {
+  snapshot: InsightSnapshot;
+  reflection: string;
+};
 
 type HomeScreenMemoryState = {
   entries: EntryListItem[];
@@ -54,6 +66,7 @@ type HomeScreenMemoryState = {
   stepSource: StepSource;
   hasLoadedOnce: boolean;
   dailyHomeCards: DailyHomeCards | null;
+  weeklyDigest: WeeklyDigest | null;
 };
 
 type TodayOverview = {
@@ -83,9 +96,15 @@ const initialMemoryState: HomeScreenMemoryState = {
   stepSource: "apple-health",
   hasLoadedOnce: false,
   dailyHomeCards: null,
+  weeklyDigest: null,
 };
 
 let homeScreenMemoryState: HomeScreenMemoryState = initialMemoryState;
+let lastWeeklyDigest: WeeklyDigest | null = null;
+
+export function getLastWeeklyDigest() {
+  return lastWeeklyDigest;
+}
 
 export default function HomeScreen({
   onNavigateEntries: _onNavigateEntries,
@@ -108,7 +127,11 @@ export default function HomeScreen({
   const [dailyHomeCards, setDailyHomeCards] = useState<DailyHomeCards | null>(
     homeScreenMemoryState.dailyHomeCards,
   );
+  const [weeklyDigest, setWeeklyDigest] = useState<WeeklyDigest | null>(null);
+  const [showWeeklyModal, setShowWeeklyModal] = useState(false);
   const hasCheckedUtcRef = useRef(false);
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const todayLabel = formatLongDay(new Date());
   const aiReady = hasInsightsConfig();
 
@@ -138,6 +161,7 @@ export default function HomeScreen({
       });
 
       homeScreenMemoryState = {
+        ...homeScreenMemoryState,
         entries: nextEntries,
         todaySteps: stepSnapshot.totalSteps,
         stepPermission: stepSnapshot.permission,
@@ -168,6 +192,10 @@ export default function HomeScreen({
       if (!hasCheckedUtcRef.current) {
         hasCheckedUtcRef.current = true;
         void checkUtcTimestamps();
+      }
+
+      if (aiReady && nextEntries.length >= 3 && new Date().getDay() === 0) {
+        void loadWeeklyDigest(nextEntries);
       }
     } catch (error) {
       console.error("Failed to load Home", error);
@@ -256,6 +284,37 @@ export default function HomeScreen({
       console.error("UTC check failed", error);
     }
   }, [db]);
+
+  const loadWeeklyDigest = useCallback(async (loadedEntries: EntryListItem[]) => {
+    try {
+      const lastShown = await SecureStore.getItemAsync("walklog-digest-shown");
+      const today = new Date();
+      const weekKey = `${today.getFullYear()}-W${Math.ceil((today.getDate() + new Date(today.getFullYear(), 0, 1).getDay()) / 7)}`;
+      if (lastShown === weekKey) return;
+
+      const snapshot = buildInsightSnapshot(loadedEntries, "7d");
+      if (snapshot.activeEntryCount === 0) return;
+
+      const cached = peekCachedReflection(loadedEntries, "7d");
+      if (cached) {
+        const digest = { snapshot, reflection: cached };
+        lastWeeklyDigest = digest;
+        setWeeklyDigest(digest);
+        setShowWeeklyModal(true);
+        void SecureStore.setItemAsync("walklog-digest-shown", weekKey);
+        return;
+      }
+
+      const reflection = await generateReflection(loadedEntries, "7d");
+      const digest = { snapshot, reflection };
+      lastWeeklyDigest = digest;
+      setWeeklyDigest(digest);
+      setShowWeeklyModal(true);
+      void SecureStore.setItemAsync("walklog-digest-shown", weekKey);
+    } catch (error) {
+      console.error("Weekly digest failed", error);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -377,7 +436,61 @@ export default function HomeScreen({
               )
             ))}
           </View>
+
         </ScrollView>
+
+        {weeklyDigest ? (
+          <Modal
+            visible={showWeeklyModal}
+            animationType="slide"
+            presentationStyle="pageSheet"
+            onRequestClose={() => setShowWeeklyModal(false)}
+          >
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Your Week</Text>
+                <Pressable
+                  hitSlop={12}
+                  onPress={() => setShowWeeklyModal(false)}
+                  style={({ pressed }) => pressed ? { opacity: 0.5 } : undefined}
+                >
+                  <Text style={styles.modalClose}>Done</Text>
+                </Pressable>
+              </View>
+              <ScrollView contentContainerStyle={styles.modalContent}>
+                <View style={styles.modalStatsRow}>
+                  <View style={styles.modalStat}>
+                    <Text style={styles.modalStatValue}>
+                      {weeklyDigest.snapshot.activeEntryCount}
+                    </Text>
+                    <Text style={styles.modalStatLabel}>Entries</Text>
+                  </View>
+                  <View style={styles.modalStat}>
+                    <Text style={styles.modalStatValue}>
+                      {weeklyDigest.snapshot.walkCount}
+                    </Text>
+                    <Text style={styles.modalStatLabel}>Walks</Text>
+                  </View>
+                  <View style={styles.modalStat}>
+                    <Text style={styles.modalStatValue}>
+                      {weeklyDigest.snapshot.totalSteps > 0
+                        ? weeklyDigest.snapshot.totalSteps.toLocaleString()
+                        : "--"}
+                    </Text>
+                    <Text style={styles.modalStatLabel}>Steps</Text>
+                  </View>
+                  <View style={styles.modalStat}>
+                    <Text style={styles.modalStatValue}>
+                      {weeklyDigest.snapshot.totalWords.toLocaleString()}
+                    </Text>
+                    <Text style={styles.modalStatLabel}>Words</Text>
+                  </View>
+                </View>
+                <Text style={styles.modalReflection}>{weeklyDigest.reflection}</Text>
+              </ScrollView>
+            </View>
+          </Modal>
+        ) : null}
 
         <View style={styles.bottomDock}>
           <View style={styles.bottomDockRule} />
@@ -605,7 +718,8 @@ function tokenize(body: string) {
 }
 
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
@@ -718,6 +832,64 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 22,
+    paddingTop: 20,
+    paddingBottom: 12,
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 28,
+    fontWeight: "300",
+    letterSpacing: -0.8,
+  },
+  modalClose: {
+    color: colors.muted,
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  modalContent: {
+    paddingHorizontal: 22,
+    paddingBottom: 40,
+    gap: 24,
+  },
+  modalStatsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.rule,
+  },
+  modalStat: {
+    alignItems: "center",
+    gap: 4,
+  },
+  modalStatValue: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: "300",
+    letterSpacing: -0.5,
+  },
+  modalStatLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    letterSpacing: 1,
+    fontFamily: "Courier",
+    textTransform: "uppercase",
+  },
+  modalReflection: {
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 26,
+  },
   homeCardBodyMuted: {
     color: colors.muted,
     fontSize: 14,
@@ -739,3 +911,4 @@ const styles = StyleSheet.create({
     backgroundColor: colors.rule,
   },
 });
+}

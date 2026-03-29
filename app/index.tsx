@@ -12,7 +12,7 @@ import {
 import HomeScreen from "../src/modules/home";
 import InsightsScreen from "../src/modules/insights/insights-screen";
 import EntriesScreen from "../src/modules/journal/entries-screen";
-import { colors } from "../src/theme";
+import { useThemeColors } from "../src/theme";
 
 type PageName = "insights" | "home" | "entries";
 
@@ -22,6 +22,7 @@ export default function RootPagerScreen() {
   const scrollRef = useRef<ScrollView | null>(null);
   const { width } = useWindowDimensions();
   const [activePage, setActivePage] = useState<PageName>("home");
+  const { colors } = useThemeColors();
 
   useEffect(() => {
     if (!width) {
@@ -65,7 +66,7 @@ export default function RootPagerScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -97,7 +98,10 @@ export default function RootPagerScreen() {
         {PAGE_ORDER.map((page) => (
           <View
             key={page}
-            style={[styles.pageDot, activePage === page && styles.pageDotActive]}
+            style={[
+              styles.pageDot,
+              { backgroundColor: activePage === page ? colors.accent : colors.hole },
+            ]}
           />
         ))}
       </View>
@@ -110,10 +114,6 @@ function getPageOffset(page: PageName, width: number) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
   page: {
     flex: 1,
   },
@@ -130,9 +130,5 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 999,
-    backgroundColor: "#D8D1C5",
-  },
-  pageDotActive: {
-    backgroundColor: colors.accent,
   },
 });

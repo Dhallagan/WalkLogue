@@ -1,4 +1,4 @@
-import { PropsWithChildren, type ReactNode } from "react";
+import { PropsWithChildren, useMemo, type ReactNode } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -9,7 +9,14 @@ import {
   type ViewStyle,
 } from "react-native";
 
-import { colors } from "../theme";
+import { useTheme, useThemeColors } from "../theme";
+
+type ColorTokens = ReturnType<typeof useTheme>["colors"];
+
+function useNotebookStyles() {
+  const { colors } = useThemeColors();
+  return useMemo(() => createStyles(colors), [colors]);
+}
 
 type PaperSheetProps = PropsWithChildren<{
   style?: ViewStyle;
@@ -27,6 +34,7 @@ export function PaperSheet({
   lineGap = 32,
   lineOffset = 36,
 }: PaperSheetProps) {
+  const styles = useNotebookStyles();
   return (
     <View style={[styles.sheet, style]}>
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -47,6 +55,7 @@ export function PaperRow({
   children,
   style,
 }: PropsWithChildren<{ style?: ViewStyle }>) {
+  const styles = useNotebookStyles();
   return (
     <View style={[styles.row, style]}>
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -61,6 +70,7 @@ export function PaperTabBar({
   children,
   style,
 }: PropsWithChildren<{ style?: ViewStyle }>) {
+  const styles = useNotebookStyles();
   return <View style={[styles.tabBar, style]}>{children}</View>;
 }
 
@@ -68,6 +78,7 @@ export function PaperActionBar({
   children,
   style,
 }: PropsWithChildren<{ style?: ViewStyle }>) {
+  const styles = useNotebookStyles();
   return <View style={[styles.actionBar, style]}>{children}</View>;
 }
 
@@ -82,6 +93,7 @@ export function PaperActionButton({
     textStyle?: TextStyle;
   }
 >) {
+  const styles = useNotebookStyles();
   return (
     <Pressable
       {...props}
@@ -111,6 +123,7 @@ export function PaperRecordButton({
   leadingAccessory?: ReactNode;
   trailingAccessory?: ReactNode;
 }) {
+  const styles = useNotebookStyles();
   return (
     <Pressable
       {...props}
@@ -154,6 +167,7 @@ export function PaperTab({
     textStyle?: TextStyle;
   }
 >) {
+  const styles = useNotebookStyles();
   return (
     <Pressable
       {...props}
@@ -182,7 +196,8 @@ export function PaperTab({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ColorTokens) {
+  return StyleSheet.create({
   sheet: {
     overflow: "hidden",
     borderRadius: 20,
@@ -362,3 +377,4 @@ const styles = StyleSheet.create({
     fontFamily: "Courier",
   },
 });
+}

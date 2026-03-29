@@ -21,7 +21,7 @@ import {
   hasInsightsConfig,
   peekCachedReflection,
 } from "./openai";
-import { colors, layout, spacing } from "../../theme";
+import { useTheme, useThemeColors, layout, spacing } from "../../theme";
 
 type ChatMessage = {
   id: string;
@@ -29,18 +29,23 @@ type ChatMessage = {
   content: string;
 };
 
+let persistedMessages: ChatMessage[] = [];
+let persistedDraft = "";
+
 export default function InsightsScreen({
   onNavigateHome,
 }: {
   onNavigateHome: () => void;
 }) {
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const db = useSQLiteContext();
   const router = useRouter();
   const scrollViewRef = useRef<ScrollView>(null);
   const chatDraftRef = useRef("");
   const [entries, setEntries] = useState<EntryListItem[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [chatDraft, setChatDraft] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>(persistedMessages);
+  const [chatDraft, setChatDraft] = useState(persistedDraft);
   const [chatError, setChatError] = useState<string | null>(null);
   const [profilePreview, setProfilePreview] = useState("");
   const [profilePreviewError, setProfilePreviewError] = useState<string | null>(null);
@@ -94,6 +99,14 @@ export default function InsightsScreen({
     ],
     [],
   );
+
+  useEffect(() => {
+    persistedMessages = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    persistedDraft = chatDraft;
+  }, [chatDraft]);
 
   useEffect(() => {
     if (!isSending) {
@@ -351,7 +364,8 @@ export default function InsightsScreen({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
@@ -515,3 +529,4 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
 });
+}

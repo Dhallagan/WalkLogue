@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -23,9 +23,12 @@ import {
   type StepPermissionStatus,
   type StepSource,
 } from "../src/modules/steps/service";
-import { colors } from "../src/theme";
+import { useTheme, useThemeColors } from "../src/theme";
 
 export default function WalkScreen() {
+  const { forDate } = useLocalSearchParams<{ forDate?: string }>();
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const db = useSQLiteContext();
   const router = useRouter();
   const hasStartedRef = useRef(false);
@@ -151,12 +154,23 @@ export default function WalkScreen() {
           stepSnapshot.permission === "granted" ? stepSnapshot.totalSteps : 0;
       }
 
+      let startedAt = session.startedAt;
+      let endedAt = session.endedAt;
+
+      if (forDate) {
+        const target = new Date(`${forDate}T12:00:00`);
+        if (!isNaN(target.getTime())) {
+          startedAt = target;
+          endedAt = new Date(target.getTime() + session.durationSec * 1000);
+        }
+      }
+
       const entry = await createWalkEntry(db, {
         body: session.transcript,
-        startedAt: session.startedAt,
-        endedAt: session.endedAt,
+        startedAt,
+        endedAt,
         durationSec: session.durationSec,
-        stepCount,
+        stepCount: forDate ? 0 : stepCount,
       });
 
       if (entry) {
@@ -300,8 +314,10 @@ export default function WalkScreen() {
       <View style={styles.container}>
         <View style={styles.header}>
           <View style={styles.headerTextBlock}>
-            <Text style={styles.title}>Today</Text>
-            <Text style={styles.dateText}>{formatCompactDate(new Date())}</Text>
+            <Text style={styles.title}>{forDate ? "Recall" : "Today"}</Text>
+            <Text style={styles.dateText}>
+              {formatCompactDate(forDate ? new Date(`${forDate}T12:00:00`) : new Date())}
+            </Text>
           </View>
           {isRecording && !isTranscribing ? (
             <Pressable
@@ -387,7 +403,10 @@ function isAbortError(error: unknown) {
   );
 }
 
-const styles = StyleSheet.create({
+type ColorTokens = ReturnType<typeof useTheme>["colors"];
+
+function createStyles(colors: ColorTokens) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
@@ -535,3 +554,4 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
 });
+}

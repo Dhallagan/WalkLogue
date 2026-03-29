@@ -52,7 +52,8 @@
           "NSHealthUpdateUsageDescription": "WalkLog saves step-related journal data to Apple Health when needed to support your walk entries."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true

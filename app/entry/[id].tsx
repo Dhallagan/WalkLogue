@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Keyboard,
   Pressable,
@@ -23,7 +23,8 @@ import { Screen } from "../../src/components/ui";
 import {
   formatCompactDate,
   formatDuration,
-  formatEntryMeta,
+  formatEntryTime,
+  formatLongDay,
 } from "../../src/lib/date";
 import {
   createManualEntry,
@@ -45,13 +46,15 @@ import {
 } from "../../src/modules/insights/openai";
 import { formatEntryTitle as formatDefaultTitle } from "../../src/lib/date";
 import type { EntryDetail } from "../../src/modules/journal/types";
-import { colors } from "../../src/theme";
+import { useTheme, useThemeColors } from "../../src/theme";
 
 const ENTRY_RULE_GAP = 28;
 const ENTRY_RULE_OFFSET = 46;
 
 export default function EntryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const db = useSQLiteContext();
   const navigation = useNavigation();
   const router = useRouter();
@@ -140,7 +143,20 @@ export default function EntryDetailScreen() {
     if (dirtyRef.current && entry) {
       await saveChanges(entry.id, title, titleEmoji, body);
     }
-    router.replace(`/entry/${targetId}`);
+
+    const nextEntry = await getEntryById(db, targetId);
+    if (!nextEntry) return;
+
+    const adjacent = await getAdjacentEntryIds(db, targetId);
+    setEntry(nextEntry);
+    setTitle(nextEntry.title);
+    setTitleEmoji(nextEntry.titleEmoji ?? "");
+    setBody(nextEntry.body);
+    setPrevId(adjacent.prevId);
+    setNextId(adjacent.nextId);
+    setEditing(false);
+    setShowDatePicker(false);
+    dirtyRef.current = false;
   }
 
   async function handleDateChange(event: DateTimePickerEvent, selectedDate?: Date) {
@@ -280,12 +296,12 @@ export default function EntryDetailScreen() {
   return (
     <Screen scroll includeTopInset>
       <View style={styles.headerRow}>
-        <View style={styles.header}>
-          <View style={styles.dateNav}>
+        <View style={styles.headerTopRow}>
+          <View style={styles.titleRow}>
             <Pressable
               hitSlop={12}
               onPress={() => prevId && void navigateTo(prevId)}
-              style={{ opacity: prevId ? 1 : 0.2 }}
+              style={[styles.navButton, { opacity: prevId ? 1 : 0.2 }]}
               disabled={!prevId}
             >
               <Text style={styles.navArrow}>‹</Text>
@@ -294,47 +310,45 @@ export default function EntryDetailScreen() {
               onPress={editing ? () => setShowDatePicker(!showDatePicker) : undefined}
               disabled={!editing}
             >
-              <Text style={[styles.dateText, editing && styles.dateTextEditable]}>
-                {formatCompactDate(entry.createdAt)}
+              <Text style={[styles.dateTitle, editing && styles.dateTitleEditable]}>
+                {formatLongDay(entry.createdAt)}
               </Text>
             </Pressable>
             <Pressable
               hitSlop={12}
               onPress={() => nextId && void navigateTo(nextId)}
-              style={{ opacity: nextId ? 1 : 0.2 }}
+              style={[styles.navButton, { opacity: nextId ? 1 : 0.2 }]}
               disabled={!nextId}
             >
               <Text style={styles.navArrow}>›</Text>
             </Pressable>
           </View>
-          {showDatePicker ? (
-            <DateTimePicker
-              value={entry.createdAt}
-              mode="datetime"
-              display="spinner"
-              onChange={handleDateChange}
-              style={styles.datePicker}
-            />
-          ) : null}
-          <Text style={styles.metaText}>
-            {formatEntryMeta(entry.createdAt)}
-          </Text>
-          {entry.source === "walk" ? (
-            <Text style={styles.walkMetaText}>{formatWalkMeta(entry)}</Text>
-          ) : null}
-        </View>
-        <View style={styles.headerActions}>
-          {!editing ? (
-            <Pressable hitSlop={10} onPress={handleEdit}>
-              <Text style={styles.actionText}>Edit</Text>
+          <View style={styles.headerActions}>
+            {!editing ? (
+              <Pressable hitSlop={10} onPress={handleEdit}>
+                <Text style={styles.actionText}>Edit</Text>
+              </Pressable>
+            ) : null}
+            <Pressable hitSlop={10} onPress={() => void handleDone()}>
+              <Text style={styles.actionText}>
+                {editing ? "Done" : "Close"}
+              </Text>
             </Pressable>
-          ) : null}
-          <Pressable hitSlop={10} onPress={() => void handleDone()}>
-            <Text style={styles.actionText}>
-              {editing ? "Done" : "Close"}
-            </Text>
-          </Pressable>
+          </View>
         </View>
+        {showDatePicker ? (
+          <DateTimePicker
+            value={entry.createdAt}
+            mode="datetime"
+            display="spinner"
+            onChange={handleDateChange}
+            style={styles.datePicker}
+          />
+        ) : null}
+        <Text style={styles.metaText}>
+          {formatEntryTime(entry.createdAt)}
+          {entry.source === "walk" ? `  ·  ${formatWalkMeta(entry)}` : ""}
+        </Text>
       </View>
 
       <PaperSheet
@@ -345,7 +359,7 @@ export default function EntryDetailScreen() {
       >
         {editing ? (
           <>
-            <View style={styles.titleRow}>
+            <View style={styles.entryTitleRow}>
               <Pressable
                 onPress={() => {
                   emojiInputRef.current?.focus();
@@ -413,7 +427,7 @@ export default function EntryDetailScreen() {
           </>
         ) : (
           <>
-            <View style={styles.titleRow}>
+            <View style={styles.entryTitleRow}>
               <Text style={styles.emojiDisplay}>
                 {titleEmoji?.trim() || "🌤️"}
               </Text>
@@ -445,49 +459,55 @@ function formatWalkMeta(entry: EntryDetail) {
   return parts.join("  ·  ");
 }
 
-const styles = StyleSheet.create({
+type ColorTokens = ReturnType<typeof useTheme>["colors"];
+
+function createStyles(colors: ColorTokens) {
+  return StyleSheet.create({
   loadingText: {
     color: colors.text,
     fontSize: 16,
     paddingTop: 12,
   },
   headerRow: {
+    gap: 6,
+  },
+  headerTopRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 16,
   },
   header: {
-    gap: 4,
-    paddingTop: 2,
-    flex: 1,
+    gap: 6,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  dateTitle: {
+    color: colors.text,
+    fontSize: 26,
+    lineHeight: 32,
+    fontWeight: "300",
+    letterSpacing: -0.8,
+  },
+  dateTitleEditable: {
+    textDecorationLine: "underline",
+    textDecorationColor: colors.border,
+  },
+  navButton: {
+    paddingVertical: 4,
+  },
+  navArrow: {
+    color: colors.muted,
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: "300",
   },
   headerActions: {
     flexDirection: "row",
     gap: 16,
-    paddingTop: 4,
-  },
-  dateNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  navArrow: {
-    color: colors.muted,
-    fontSize: 22,
-    lineHeight: 22,
-    fontWeight: "300",
-  },
-  dateText: {
-    color: colors.text,
-    fontSize: 14,
-    lineHeight: 17,
-    fontWeight: "300",
-    letterSpacing: -0.6,
-  },
-  dateTextEditable: {
-    textDecorationLine: "underline",
-    textDecorationColor: colors.border,
+    paddingTop: 6,
   },
   datePicker: {
     height: 160,
@@ -496,17 +516,10 @@ const styles = StyleSheet.create({
   },
   metaText: {
     color: colors.muted,
-    fontSize: 10,
+    fontSize: 11,
     letterSpacing: 1,
     fontFamily: "Courier",
-  },
-  walkMetaText: {
-    color: colors.muted,
-    fontSize: 10,
-    lineHeight: 14,
-    letterSpacing: 0.8,
-    fontFamily: "Courier",
-    paddingTop: 2,
+    textTransform: "uppercase",
   },
   actionText: {
     color: colors.text,
@@ -522,7 +535,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 12,
   },
-  titleRow: {
+  entryTitleRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
@@ -576,3 +589,4 @@ const styles = StyleSheet.create({
     lineHeight: ENTRY_RULE_GAP,
   },
 });
+}

@@ -1,4 +1,4 @@
-import { PropsWithChildren, type ReactNode } from "react";
+import { PropsWithChildren, useMemo, type ReactNode } from "react";
 import {
   Pressable,
   ScrollView,
@@ -11,12 +11,20 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
-  colors,
   layout,
   radii,
   spacing,
-  statusColors,
+  useTheme,
+  useThemeColors,
 } from "../theme";
+
+type ColorTokens = ReturnType<typeof useTheme>["colors"];
+type StatusColors = ReturnType<typeof useTheme>["statusColors"];
+
+function useUIStyles() {
+  const { colors, statusColors } = useThemeColors();
+  return useMemo(() => createStyles(colors, statusColors), [colors, statusColors]);
+}
 
 export function Screen({
   children,
@@ -28,6 +36,8 @@ export function Screen({
   includeTopInset?: boolean;
   style?: ViewStyle;
 }>) {
+  const styles = useUIStyles();
+
   if (scroll) {
     return (
       <SafeAreaView
@@ -70,6 +80,7 @@ export function Panel({
   style?: ViewStyle;
   tone?: "default" | "soft";
 }>) {
+  const styles = useUIStyles();
   return (
     <View
       style={[
@@ -94,6 +105,7 @@ export function ScreenHeader({
   description?: ReactNode;
   trailing?: ReactNode;
 }) {
+  const styles = useUIStyles();
   return (
     <View style={styles.screenHeaderRow}>
       <View style={styles.screenHeader}>
@@ -107,10 +119,12 @@ export function ScreenHeader({
 }
 
 export function SectionLabel({ children }: PropsWithChildren) {
+  const styles = useUIStyles();
   return <Text style={styles.sectionLabel}>{children}</Text>;
 }
 
 export function SectionTitle({ children }: PropsWithChildren) {
+  const styles = useUIStyles();
   return <Text style={styles.sectionTitle}>{children}</Text>;
 }
 
@@ -119,6 +133,7 @@ export function PrimaryButton({
   style,
   ...props
 }: PropsWithChildren<PressableProps & { style?: ViewStyle }>) {
+  const styles = useUIStyles();
   return (
     <Pressable
       {...props}
@@ -138,6 +153,7 @@ export function SecondaryButton({
   style,
   ...props
 }: PropsWithChildren<PressableProps & { style?: ViewStyle }>) {
+  const styles = useUIStyles();
   return (
     <Pressable
       {...props}
@@ -156,6 +172,7 @@ export function Pill({
   children,
   tone = "default",
 }: PropsWithChildren<{ tone?: "default" | "success" | "danger" }>) {
+  const styles = useUIStyles();
   return (
     <View
       style={[
@@ -169,142 +186,144 @@ export function Pill({
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: layout.screenPadding,
-    paddingVertical: layout.screenTop,
-    gap: layout.sectionGap,
-  },
-  scrollContent: {
-    paddingHorizontal: layout.screenPadding,
-    paddingTop: layout.screenTop,
-    paddingBottom: spacing.xxl,
-    gap: layout.sectionGap,
-  },
-  panel: {
-    backgroundColor: colors.card,
-    borderRadius: radii.lg,
-    padding: layout.panelPadding,
-    gap: layout.panelGap,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    shadowColor: colors.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-  },
-  panelSoft: {
-    backgroundColor: colors.accentSoft,
-    borderColor: "#D3CDC1",
-  },
-  screenHeaderRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: spacing.md,
-  },
-  screenHeader: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  screenHeaderAside: {
-    paddingTop: spacing.xs,
-  },
-  eyebrow: {
-    color: colors.muted,
-    fontSize: 11,
-    letterSpacing: 1,
-    fontFamily: "Courier",
-    textTransform: "uppercase",
-  },
-  screenTitle: {
-    fontSize: 30,
-    lineHeight: 36,
-    color: colors.text,
-    fontWeight: "300",
-    letterSpacing: -1.1,
-  },
-  screenDescription: {
-    color: colors.muted,
-    fontSize: 15,
-    lineHeight: 22,
-    maxWidth: 540,
-  },
-  sectionLabel: {
-    color: colors.muted,
-    fontSize: 11,
-    letterSpacing: 1,
-    fontFamily: "Courier",
-    textTransform: "uppercase",
-    marginBottom: -4,
-  },
-  sectionTitle: {
-    fontSize: 28,
-    lineHeight: 34,
-    color: colors.text,
-    fontWeight: "300",
-    letterSpacing: -0.7,
-  },
-  primaryButton: {
-    minHeight: 48,
-    borderRadius: radii.md,
-    backgroundColor: colors.accent,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.lg,
-  },
-  secondaryButton: {
-    minHeight: 44,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.lg,
-  },
-  primaryButtonText: {
-    color: "#FFF8F2",
-    fontWeight: "700",
-    fontSize: 15,
-    letterSpacing: 0.1,
-  },
-  secondaryButtonText: {
-    color: colors.text,
-    fontWeight: "600",
-    fontSize: 14,
-    letterSpacing: -0.2,
-  },
-  buttonPressed: {
-    opacity: 0.84,
-  },
-  pill: {
-    alignSelf: "flex-start",
-    borderRadius: radii.pill,
-    backgroundColor: statusColors.default.background,
-    borderColor: statusColors.default.border,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  pillSuccess: {
-    backgroundColor: statusColors.success.background,
-    borderColor: statusColors.success.border,
-  },
-  pillDanger: {
-    backgroundColor: statusColors.danger.background,
-    borderColor: statusColors.danger.border,
-  },
-  pillText: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 0.7,
-  },
-});
+function createStyles(colors: ColorTokens, statusColors: StatusColors) {
+  return StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    content: {
+      flex: 1,
+      paddingHorizontal: layout.screenPadding,
+      paddingVertical: layout.screenTop,
+      gap: layout.sectionGap,
+    },
+    scrollContent: {
+      paddingHorizontal: layout.screenPadding,
+      paddingTop: layout.screenTop,
+      paddingBottom: spacing.xxl,
+      gap: layout.sectionGap,
+    },
+    panel: {
+      backgroundColor: colors.card,
+      borderRadius: radii.lg,
+      padding: layout.panelPadding,
+      gap: layout.panelGap,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      shadowColor: colors.shadow,
+      shadowOpacity: 1,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 3 },
+    },
+    panelSoft: {
+      backgroundColor: colors.accentSoft,
+      borderColor: colors.border,
+    },
+    screenHeaderRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: spacing.md,
+    },
+    screenHeader: {
+      flex: 1,
+      gap: spacing.xs,
+    },
+    screenHeaderAside: {
+      paddingTop: spacing.xs,
+    },
+    eyebrow: {
+      color: colors.muted,
+      fontSize: 11,
+      letterSpacing: 1,
+      fontFamily: "Courier",
+      textTransform: "uppercase",
+    },
+    screenTitle: {
+      fontSize: 30,
+      lineHeight: 36,
+      color: colors.text,
+      fontWeight: "300",
+      letterSpacing: -1.1,
+    },
+    screenDescription: {
+      color: colors.muted,
+      fontSize: 15,
+      lineHeight: 22,
+      maxWidth: 540,
+    },
+    sectionLabel: {
+      color: colors.muted,
+      fontSize: 11,
+      letterSpacing: 1,
+      fontFamily: "Courier",
+      textTransform: "uppercase",
+      marginBottom: -4,
+    },
+    sectionTitle: {
+      fontSize: 28,
+      lineHeight: 34,
+      color: colors.text,
+      fontWeight: "300",
+      letterSpacing: -0.7,
+    },
+    primaryButton: {
+      minHeight: 48,
+      borderRadius: radii.md,
+      backgroundColor: colors.accent,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: spacing.lg,
+    },
+    secondaryButton: {
+      minHeight: 44,
+      borderRadius: radii.md,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: spacing.lg,
+    },
+    primaryButtonText: {
+      color: "#FFF8F2",
+      fontWeight: "700",
+      fontSize: 15,
+      letterSpacing: 0.1,
+    },
+    secondaryButtonText: {
+      color: colors.text,
+      fontWeight: "600",
+      fontSize: 14,
+      letterSpacing: -0.2,
+    },
+    buttonPressed: {
+      opacity: 0.84,
+    },
+    pill: {
+      alignSelf: "flex-start",
+      borderRadius: radii.pill,
+      backgroundColor: statusColors.default?.background ?? colors.accentSoft,
+      borderColor: statusColors.default?.border ?? colors.border,
+      borderWidth: StyleSheet.hairlineWidth,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    pillSuccess: {
+      backgroundColor: statusColors.success?.background ?? colors.accentSoft,
+      borderColor: statusColors.success?.border ?? colors.border,
+    },
+    pillDanger: {
+      backgroundColor: statusColors.danger?.background ?? colors.accentSoft,
+      borderColor: statusColors.danger?.border ?? colors.border,
+    },
+    pillText: {
+      color: colors.muted,
+      fontSize: 11,
+      fontWeight: "600",
+      textTransform: "uppercase",
+      letterSpacing: 0.7,
+    },
+  });
+}

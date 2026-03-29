@@ -1,9 +1,10 @@
-import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 
 import { Panel, Screen, SectionLabel } from "../../components/ui";
+import { getLastWeeklyDigest } from "../home/home-screen";
 import { listEntries } from "../journal/repository";
 import type { EntryListItem } from "../journal/types";
 import {
@@ -17,10 +18,14 @@ import {
   hasInsightsConfig,
   peekCachedReflection,
 } from "../insights/openai";
-import { colors, spacing } from "../../theme";
+import { useTheme, useThemeColors, spacing } from "../../theme";
 
 export default function ProfileScreen() {
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const db = useSQLiteContext();
+  const [showDigestModal, setShowDigestModal] = useState(false);
+  const weeklyDigest = getLastWeeklyDigest();
   const [entries, setEntries] = useState<EntryListItem[]>([]);
   const [timeframe, setTimeframe] = useState<InsightTimeframe>("30d");
   const [snapshot, setSnapshot] = useState<InsightSnapshot | null>(null);
@@ -196,6 +201,71 @@ export default function ProfileScreen() {
           value={snapshot?.focusAreas.join(", ") || "No clear lens yet"}
         />
       </Panel>
+
+      {weeklyDigest ? (
+        <>
+          <Pressable
+            onPress={() => setShowDigestModal(true)}
+            style={({ pressed }) => [
+              styles.digestButton,
+              pressed && { opacity: 0.6 },
+            ]}
+          >
+            <Text style={styles.digestButtonText}>View Weekly Digest</Text>
+          </Pressable>
+
+          <Modal
+            visible={showDigestModal}
+            animationType="slide"
+            presentationStyle="pageSheet"
+            onRequestClose={() => setShowDigestModal(false)}
+          >
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Your Week</Text>
+                <Pressable
+                  hitSlop={12}
+                  onPress={() => setShowDigestModal(false)}
+                  style={({ pressed }) => pressed ? { opacity: 0.5 } : undefined}
+                >
+                  <Text style={styles.modalClose}>Done</Text>
+                </Pressable>
+              </View>
+              <ScrollView contentContainerStyle={styles.modalContent}>
+                <View style={styles.modalStatsRow}>
+                  <View style={styles.modalStat}>
+                    <Text style={styles.modalStatValue}>
+                      {weeklyDigest.snapshot.activeEntryCount}
+                    </Text>
+                    <Text style={styles.modalStatLabel}>Entries</Text>
+                  </View>
+                  <View style={styles.modalStat}>
+                    <Text style={styles.modalStatValue}>
+                      {weeklyDigest.snapshot.walkCount}
+                    </Text>
+                    <Text style={styles.modalStatLabel}>Walks</Text>
+                  </View>
+                  <View style={styles.modalStat}>
+                    <Text style={styles.modalStatValue}>
+                      {weeklyDigest.snapshot.totalSteps > 0
+                        ? weeklyDigest.snapshot.totalSteps.toLocaleString()
+                        : "--"}
+                    </Text>
+                    <Text style={styles.modalStatLabel}>Steps</Text>
+                  </View>
+                  <View style={styles.modalStat}>
+                    <Text style={styles.modalStatValue}>
+                      {weeklyDigest.snapshot.totalWords.toLocaleString()}
+                    </Text>
+                    <Text style={styles.modalStatLabel}>Words</Text>
+                  </View>
+                </View>
+                <Text style={styles.modalReflection}>{weeklyDigest.reflection}</Text>
+              </ScrollView>
+            </View>
+          </Modal>
+        </>
+      ) : null}
     </Screen>
   );
 }
@@ -209,6 +279,8 @@ function MetricCard({
   value: string;
   note: string;
 }) {
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <Panel style={styles.metricCard}>
       <Text style={styles.metricLabel}>{label}</Text>
@@ -225,6 +297,8 @@ function PatternRow({
   label: string;
   value: string;
 }) {
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.patternRow}>
       <Text style={styles.patternLabel}>{label}</Text>
@@ -233,7 +307,10 @@ function PatternRow({
   );
 }
 
-const styles = StyleSheet.create({
+type ColorTokens = ReturnType<typeof useTheme>["colors"];
+
+function createStyles(colors: ColorTokens) {
+  return StyleSheet.create({
   timeframePanel: {
     gap: spacing.sm,
   },
@@ -335,4 +412,77 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 24,
   },
+  digestButton: {
+    alignSelf: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: colors.accentSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  digestButtonText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 22,
+    paddingTop: 20,
+    paddingBottom: 12,
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 28,
+    fontWeight: "300",
+    letterSpacing: -0.8,
+  },
+  modalClose: {
+    color: colors.muted,
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  modalContent: {
+    paddingHorizontal: 22,
+    paddingBottom: 40,
+    gap: 24,
+  },
+  modalStatsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.rule,
+  },
+  modalStat: {
+    alignItems: "center",
+    gap: 4,
+  },
+  modalStatValue: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: "300",
+    letterSpacing: -0.5,
+  },
+  modalStatLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    letterSpacing: 1,
+    fontFamily: "Courier",
+    textTransform: "uppercase",
+  },
+  modalReflection: {
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 26,
+  },
 });
+}

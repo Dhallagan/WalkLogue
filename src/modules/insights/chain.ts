@@ -70,7 +70,9 @@ function buildFullEntryContext(entries: EntryListItem[]) {
       }
 
       const header = parts.join(" | ");
-      const body = entry.body.trim() || "Empty entry.";
+      const rawBody = entry.body.trim() || "Empty entry.";
+      const body =
+        rawBody.length > 300 ? rawBody.slice(0, 300) + "..." : rawBody;
 
       return `${header}\n${body}`;
     })
