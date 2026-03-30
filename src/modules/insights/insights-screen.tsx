@@ -13,7 +13,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { listEntries } from "../journal/repository";
+import { getEntriesVersion, listEntries } from "../journal/repository";
 import type { EntryListItem } from "../journal/types";
 import {
   answerInsightQuestion,
@@ -43,6 +43,7 @@ export default function InsightsScreen({
   const router = useRouter();
   const scrollViewRef = useRef<ScrollView>(null);
   const chatDraftRef = useRef("");
+  const loadedVersionRef = useRef(-1);
   const [entries, setEntries] = useState<EntryListItem[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>(persistedMessages);
   const [chatDraft, setChatDraft] = useState(persistedDraft);
@@ -63,6 +64,7 @@ export default function InsightsScreen({
           return;
         }
 
+        loadedVersionRef.current = getEntriesVersion();
         setEntries(loadedEntries);
 
         if (aiReady && loadedEntries.length > 0 && messages.length === 0) {
@@ -140,7 +142,18 @@ export default function InsightsScreen({
   async function handleSendQuestion(nextQuestion?: string) {
     const question = (nextQuestion ?? chatDraftRef.current).trim();
 
-    if (!question || isSending || entries.length === 0 || !aiReady) {
+    if (!question || isSending || !aiReady) {
+      return;
+    }
+
+    let currentEntries = entries;
+    if (getEntriesVersion() !== loadedVersionRef.current) {
+      currentEntries = await listEntries(db);
+      loadedVersionRef.current = getEntriesVersion();
+      setEntries(currentEntries);
+    }
+
+    if (currentEntries.length === 0) {
       return;
     }
 
@@ -160,7 +173,7 @@ export default function InsightsScreen({
 
     try {
       const assistantReply = await answerInsightQuestion(
-        entries,
+        currentEntries,
         priorMessages,
         question,
         "all",

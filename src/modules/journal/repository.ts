@@ -32,6 +32,16 @@ type EntryRow = {
   step_count: number | null;
 };
 
+let entriesVersion = 0;
+
+export function getEntriesVersion() {
+  return entriesVersion;
+}
+
+function bumpEntriesVersion() {
+  entriesVersion++;
+}
+
 function createId(prefix: string) {
   const cryptoApi = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
 
@@ -241,6 +251,7 @@ export async function createManualEntry(db: SQLiteDatabase) {
     entry.body,
   );
 
+  bumpEntriesVersion();
   return entry;
 }
 
@@ -294,6 +305,7 @@ export async function createWalkEntry(
     );
   });
 
+  bumpEntriesVersion();
   return getEntryById(db, entryId);
 }
 
@@ -313,6 +325,7 @@ export async function updateEntry(
     updates.body,
     id,
   );
+  bumpEntriesVersion();
 }
 
 /**
@@ -347,6 +360,7 @@ export async function updateEntryDate(
     formatLocalISOString(date),
     id,
   );
+  bumpEntriesVersion();
 }
 
 export async function deleteEntry(db: SQLiteDatabase, id: string) {
@@ -367,6 +381,7 @@ export async function deleteEntry(db: SQLiteDatabase, id: string) {
       id,
     );
   });
+  bumpEntriesVersion();
 }
 
 export async function getAdjacentEntryIds(
