@@ -15,7 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
 
 import { PaperRecordButton } from "../../components/notebook";
-import { formatLongDay } from "../../lib/date";
+import { formatDayKey, formatLongDay } from "../../lib/date";
 import {
   countUtcEntries,
   migrateUtcToLocal,
@@ -288,8 +288,7 @@ export default function HomeScreen({
   const loadWeeklyDigest = useCallback(async (loadedEntries: EntryListItem[]) => {
     try {
       const lastShown = await SecureStore.getItemAsync("walklog-digest-shown");
-      const today = new Date();
-      const weekKey = `${today.getFullYear()}-W${Math.ceil((today.getDate() + new Date(today.getFullYear(), 0, 1).getDay()) / 7)}`;
+      const weekKey = formatDayKey(new Date());
       if (lastShown === weekKey) return;
 
       const snapshot = buildInsightSnapshot(loadedEntries, "7d");
