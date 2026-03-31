@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import Constants from "expo-constants";
 import { useFocusEffect, useRouter } from "expo-router";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
@@ -354,12 +355,22 @@ export default function SettingsScreen() {
       <View style={styles.group}>
         <View style={styles.groupCard}>
           <SettingRow
+            label="Privacy Policy"
+            onPress={() => void Linking.openURL("https://walklog.vercel.app/privacy")}
+            chevron
+          />
+          <View style={styles.separator} />
+          <SettingRow
             label="iPhone Settings"
             onPress={() => void openAppSettings()}
             chevron
           />
         </View>
       </View>
+
+      <Text style={styles.versionText}>
+        WalkLog {Constants.expoConfig?.version ?? "1.0.0"}
+      </Text>
     </Screen>
   );
 }
@@ -499,6 +510,12 @@ function createStyles(colors: ColorTokens) {
     fontSize: 18,
     lineHeight: 22,
     fontWeight: "300",
+  },
+  versionText: {
+    color: colors.muted,
+    fontSize: 13,
+    textAlign: "center",
+    paddingVertical: 8,
   },
 });
 }
