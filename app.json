@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#FDFCF9"
     },
     "ios": {
       "supportsTablet": false,
@@ -66,6 +66,12 @@
         "projectId": "d60bb496-d83e-41c0-9ca4-966d5ed9c868"
       }
     },
-    "owner": "dhallagan"
+    "owner": "dhallagan",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/d60bb496-d83e-41c0-9ca4-966d5ed9c868"
+    }
   }
 }
