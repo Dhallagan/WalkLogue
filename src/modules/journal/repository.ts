@@ -449,6 +449,7 @@ export async function createTask(
     timeframe,
     formatLocalISOString(new Date()),
   );
+  bumpEntriesVersion();
   return id;
 }
 

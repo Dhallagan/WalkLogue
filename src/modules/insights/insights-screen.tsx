@@ -17,9 +17,7 @@ import { getEntriesVersion, listEntries } from "../journal/repository";
 import type { EntryListItem } from "../journal/types";
 import {
   answerInsightQuestion,
-  generateReflection,
   hasInsightsConfig,
-  peekCachedReflection,
 } from "./openai";
 import { useTheme, useThemeColors, layout, spacing } from "../../theme";
 
@@ -46,9 +44,6 @@ export default function InsightsScreen({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
-  const [profilePreview, setProfilePreview] = useState("");
-  const [profilePreviewError, setProfilePreviewError] = useState<string | null>(null);
-  const [isLoadingProfilePreview, setIsLoadingProfilePreview] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [thinkingFrame, setThinkingFrame] = useState(0);
   const aiReady = hasInsightsConfig();
@@ -64,25 +59,6 @@ export default function InsightsScreen({
 
         loadedVersionRef.current = getEntriesVersion();
         setEntries(loadedEntries);
-
-        if (aiReady && loadedEntries.length > 0 && messages.length === 0) {
-          const cachedPreview = peekCachedReflection(loadedEntries, "30d");
-
-          if (cachedPreview) {
-            setProfilePreviewError(null);
-            setProfilePreview(cachedPreview);
-            setIsLoadingProfilePreview(false);
-            return;
-          }
-
-          void loadProfilePreview(loadedEntries, () => isActive);
-          return;
-        }
-
-        if (loadedEntries.length === 0) {
-          setProfilePreview("");
-          setProfilePreviewError(null);
-        }
       });
 
       return () => {
@@ -93,9 +69,9 @@ export default function InsightsScreen({
 
   const starterPrompts = useMemo(
     () => [
-      "What feels most alive in my journal right now?",
-      "What am I circling emotionally these days?",
-      "What seems top of mind beneath the surface?",
+      "What have I been talking about most lately?",
+      "Who keeps coming up in my entries?",
+      "What did I say I wanted to do this month?",
     ],
     [],
   );
@@ -193,45 +169,6 @@ export default function InsightsScreen({
     }
   }
 
-  async function loadProfilePreview(
-    loadedEntries: EntryListItem[],
-    isActive = () => true,
-  ) {
-    const cachedPreview = peekCachedReflection(loadedEntries, "30d");
-
-    if (cachedPreview) {
-      setProfilePreviewError(null);
-      setProfilePreview(cachedPreview);
-      setIsLoadingProfilePreview(false);
-      return;
-    }
-
-    setIsLoadingProfilePreview(true);
-    setProfilePreviewError(null);
-
-    try {
-      const nextPreview = await generateReflection(loadedEntries, "30d");
-
-      if (!isActive()) {
-        return;
-      }
-
-      setProfilePreview(nextPreview);
-    } catch (error) {
-      if (!isActive()) {
-        return;
-      }
-
-      const message =
-        error instanceof Error ? error.message : "Could not load profile insight.";
-      setProfilePreviewError(message);
-      setProfilePreview("");
-    } finally {
-      if (isActive()) {
-        setIsLoadingProfilePreview(false);
-      }
-    }
-  }
 
 
   return (
@@ -255,33 +192,6 @@ export default function InsightsScreen({
             }
           }}
         >
-          {entries.length > 0 ? (
-            <View style={styles.previewCard}>
-              <Text style={styles.previewEyebrow}>Top Of Mind</Text>
-              <Text numberOfLines={5} style={styles.previewBody}>
-                {!aiReady
-                  ? "Open Profile to see the journal overview."
-                  : isLoadingProfilePreview
-                    ? "Reading the past month..."
-                    : profilePreviewError
-                      ? profilePreviewError
-                      : profilePreview}
-              </Text>
-              {aiReady && !isLoadingProfilePreview && !profilePreviewError ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => router.push("/profile")}
-                  style={({ pressed }) => [
-                    styles.previewLink,
-                    pressed && styles.previewLinkPressed,
-                  ]}
-                >
-                  <Text style={styles.previewLinkText}>Read more</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ) : null}
-
           {messages.length === 0 ? (
             <View style={styles.emptyState}>
               <View style={styles.starterList}>
@@ -402,6 +312,8 @@ function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
     paddingBottom: spacing.sm,
   },
   emptyState: {
+    flex: 1,
+    justifyContent: "center",
     gap: spacing.md,
   },
   previewCard: {

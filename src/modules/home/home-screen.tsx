@@ -1,6 +1,7 @@
-import { startTransition, useCallback, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   Modal,
   Pressable,
   ScrollView,
@@ -21,6 +22,7 @@ import {
   countUtcEntries,
   createTask,
   getEntriesNeedingTaskExtraction,
+  getEntriesVersion,
   listOpenTasks,
   markTasksExtracted,
   migrateUtcToLocal,
@@ -62,8 +64,10 @@ import {
   backfillTasks,
   generateReflection,
   generateSmartObservations,
+  generateTodaySummary,
   peekCachedObservations,
   peekCachedReflection,
+  peekCachedTodaySummary,
   type ExtractedTask,
   type ObservationCard,
 } from "../insights/openai";
@@ -135,6 +139,8 @@ export default function HomeScreen({
   const [showWeeklyModal, setShowWeeklyModal] = useState(false);
   const [observations, setObservations] = useState<ObservationCard[]>([]);
   const [openTasks, setOpenTasks] = useState<TaskRow[]>([]);
+  const [todaySummaryBullets, setTodaySummaryBullets] = useState<string[]>([]);
+  const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const hasCheckedUtcRef = useRef(false);
   const { colors } = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -182,6 +188,16 @@ export default function HomeScreen({
 
       if (aiReady && todayEntries.length > 0) {
         void loadDailyHomeCards(todayEntries);
+        const cachedSummary = peekCachedTodaySummary(todayEntries);
+        if (cachedSummary) {
+          setTodaySummaryBullets(cachedSummary);
+        } else {
+          setIsLoadingInsights(true);
+          void generateTodaySummary(todayEntries).then((bullets) => {
+            setTodaySummaryBullets(bullets);
+            setIsLoadingInsights(false);
+          }).catch(() => setIsLoadingInsights(false));
+        }
       }
 
       if (aiReady && nextEntries.length >= 3) {
@@ -189,7 +205,18 @@ export default function HomeScreen({
         if (cachedObs) {
           setObservations(cachedObs);
         } else {
-          void generateSmartObservations(nextEntries, "30d").then(setObservations).catch(() => {});
+          setIsLoadingInsights(true);
+          void listOpenTasks(db).then((tasks) => {
+            const taskContext = tasks.map((t) => ({
+              title: t.title,
+              timeframe: t.timeframe,
+              createdAt: t.created_at,
+            }));
+            return generateSmartObservations(nextEntries, "30d", taskContext);
+          }).then((obs) => {
+            setObservations(obs);
+            setIsLoadingInsights(false);
+          }).catch(() => setIsLoadingInsights(false));
         }
       }
 
@@ -281,7 +308,7 @@ export default function HomeScreen({
   const loadOpenTasks = useCallback(async () => {
     try {
       const tasks = await listOpenTasks(db);
-      setOpenTasks(tasks);
+      setOpenTasks(sortTasksByUrgency(tasks));
     } catch (error) {
       console.error("Failed to load tasks", error);
     }
@@ -358,10 +385,24 @@ export default function HomeScreen({
     }
   }, []);
 
+  const lastVersionRef = useRef(getEntriesVersion());
+
   useFocusEffect(
     useCallback(() => {
+      lastVersionRef.current = getEntriesVersion();
       void loadHome();
-    }, [loadHome]),
+
+      // Poll for new tasks from async extractions
+      const poller = setInterval(() => {
+        const current = getEntriesVersion();
+        if (current !== lastVersionRef.current) {
+          lastVersionRef.current = current;
+          void loadOpenTasks();
+        }
+      }, 2000);
+
+      return () => clearInterval(poller);
+    }, [loadHome, loadOpenTasks]),
   );
 
   const todayOverview = useMemo(
@@ -455,43 +496,58 @@ export default function HomeScreen({
             </View>
           </View>
 
+          {todaySummaryBullets.length > 0 ? (
+            <View style={styles.todaySummary}>
+              <Text style={styles.todaySummaryTitle}>Today so far</Text>
+              {todaySummaryBullets.map((bullet, i) => (
+                <Text key={i} style={styles.todaySummaryItem}>
+                  {"· "}{bullet}
+                </Text>
+              ))}
+            </View>
+          ) : isLoadingInsights ? (
+            <WalkingLoader colors={colors} />
+          ) : null}
+
           {openTasks.length > 0 ? (
             <View style={styles.tasksList}>
-              {openTasks.map((task) => (
-                <View key={task.id} style={styles.taskCard}>
-                  <View style={styles.taskContent}>
-                    <Text style={styles.taskTitle}>{task.title}</Text>
-                    {task.timeframe ? (
-                      <Text style={styles.taskTimeframe}>{task.timeframe}</Text>
-                    ) : null}
-                  </View>
-                  <View style={styles.taskActions}>
-                    <Pressable
-                      onPress={async () => {
-                        await completeTask(db, task.id);
-                        void loadOpenTasks();
-                      }}
-                      style={({ pressed }) => [
-                        styles.taskButton,
-                        styles.taskButtonDone,
-                        pressed && { opacity: 0.6 },
-                      ]}
-                    >
-                      <Text style={styles.taskButtonDoneText}>{"\u2713"}</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={async () => {
-                        await skipTask(db, task.id);
-                        void loadOpenTasks();
-                      }}
-                      style={({ pressed }) => [
-                        styles.taskButton,
-                        pressed && { opacity: 0.6 },
-                      ]}
-                    >
-                      <Text style={styles.taskButtonSkipText}>{"\u2717"}</Text>
-                    </Pressable>
-                  </View>
+              {groupTasksByUrgency(openTasks).map((group) => (
+                <View key={group.label} style={styles.taskGroup}>
+                  <Text style={styles.tasksSectionTitle}>{group.label}</Text>
+                  {group.tasks.map((task) => (
+                    <View key={task.id} style={styles.taskCard}>
+                      <View style={styles.taskContent}>
+                        <Text style={styles.taskTitle}>{task.title}</Text>
+                      </View>
+                      <View style={styles.taskActions}>
+                        <Pressable
+                          onPress={async () => {
+                            await completeTask(db, task.id);
+                            void loadOpenTasks();
+                          }}
+                          style={({ pressed }) => [
+                            styles.taskButton,
+                            styles.taskButtonDone,
+                            pressed && { opacity: 0.6 },
+                          ]}
+                        >
+                          <Text style={styles.taskButtonDoneText}>{"\u2713"}</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={async () => {
+                            await skipTask(db, task.id);
+                            void loadOpenTasks();
+                          }}
+                          style={({ pressed }) => [
+                            styles.taskButton,
+                            pressed && { opacity: 0.6 },
+                          ]}
+                        >
+                          <Text style={styles.taskButtonSkipText}>{"\u2717"}</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))}
                 </View>
               ))}
             </View>
@@ -559,6 +615,51 @@ export default function HomeScreen({
         </View>
       </View>
     </SafeAreaView>
+  );
+}
+
+function WalkingLoader({ colors }: { colors: ReturnType<typeof useThemeColors>["colors"] }) {
+  const dot1 = useRef(new Animated.Value(0.3)).current;
+  const dot2 = useRef(new Animated.Value(0.3)).current;
+  const dot3 = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const animate = (dot: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(dot, { toValue: 1, duration: 400, useNativeDriver: true }),
+          Animated.timing(dot, { toValue: 0.3, duration: 400, useNativeDriver: true }),
+        ]),
+      );
+
+    const a1 = animate(dot1, 0);
+    const a2 = animate(dot2, 200);
+    const a3 = animate(dot3, 400);
+    a1.start(); a2.start(); a3.start();
+    return () => { a1.stop(); a2.stop(); a3.stop(); };
+  }, [dot1, dot2, dot3]);
+
+  return (
+    <View style={{ alignItems: "center", paddingVertical: 24, gap: 10 }}>
+      <View style={{ flexDirection: "row", gap: 6 }}>
+        {[dot1, dot2, dot3].map((dot, i) => (
+          <Animated.View
+            key={i}
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 3,
+              backgroundColor: colors.muted,
+              opacity: dot,
+            }}
+          />
+        ))}
+      </View>
+      <Text style={{ color: colors.muted, fontSize: 13, fontStyle: "italic" }}>
+        Reading your journal...
+      </Text>
+    </View>
   );
 }
 
@@ -667,6 +768,85 @@ function isJournalEntryComplete(entry: EntryListItem) {
 
   return entry.body.trim().length > 0;
 }
+
+
+type TaskGroup = {
+  label: string;
+  tasks: TaskRow[];
+};
+
+function groupTasksByUrgency(tasks: TaskRow[]): TaskGroup[] {
+  const overdue: TaskRow[] = [];
+  const today: TaskRow[] = [];
+  const thisWeek: TaskRow[] = [];
+  const later: TaskRow[] = [];
+
+  for (const task of tasks) {
+    if (isOverdue(task)) {
+      overdue.push(task);
+    } else {
+      const tf = (task.timeframe ?? "").toLowerCase();
+      if (tf === "today") today.push(task);
+      else if (tf === "this week") thisWeek.push(task);
+      else later.push(task);
+    }
+  }
+
+  const groups: TaskGroup[] = [];
+
+  if (overdue.length > 0) {
+    const labels = ["Did you close these out?", "You said you'd do these", "These fell through"];
+    groups.push({
+      label: labels[Math.floor(Date.now() / 86400000) % labels.length],
+      tasks: overdue,
+    });
+  }
+
+  if (today.length > 0) {
+    groups.push({ label: "Today", tasks: today });
+  }
+
+  if (thisWeek.length > 0) {
+    groups.push({ label: "This week", tasks: thisWeek });
+  }
+
+  if (later.length > 0) {
+    const tf = later[0].timeframe?.toLowerCase();
+    const label = tf === "this month" ? "Finish this month" : "You mentioned these";
+    groups.push({ label, tasks: later });
+  }
+
+  return groups;
+}
+
+function getTimeframePriority(timeframe: string | null): number {
+  if (!timeframe) return 4;
+  const t = timeframe.toLowerCase();
+  if (t === "today") return 0;
+  if (t === "this week") return 1;
+  if (t === "this month") return 2;
+  if (t === "someday") return 3;
+  return 4;
+}
+
+function isOverdue(task: TaskRow): boolean {
+  const age = Math.floor((Date.now() - new Date(task.created_at).getTime()) / 86400000);
+  const tf = (task.timeframe ?? "").toLowerCase();
+  if (tf === "today" && age >= 1) return true;
+  if (tf === "this week" && age >= 7) return true;
+  if (tf === "this month" && age >= 30) return true;
+  return false;
+}
+
+function sortTasksByUrgency(tasks: TaskRow[]): TaskRow[] {
+  return [...tasks].sort((a, b) => {
+    const aOverdue = isOverdue(a) ? 0 : 1;
+    const bOverdue = isOverdue(b) ? 0 : 1;
+    if (aOverdue !== bOverdue) return aOverdue - bOverdue;
+    return getTimeframePriority(a.timeframe) - getTimeframePriority(b.timeframe);
+  });
+}
+
 
 function countWords(body: string) {
   return tokenize(body).length;
@@ -793,15 +973,27 @@ function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
   },
   tasksList: {
     paddingHorizontal: 18,
+    paddingBottom: 24,
+    gap: 6,
+  },
+  taskGroup: {
     gap: 8,
+  },
+  tasksSectionTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "300",
+    letterSpacing: -0.5,
+    marginTop: 8,
+    marginBottom: 6,
   },
   taskCard: {
     flexDirection: "row",
     alignItems: "center",
     paddingLeft: 16,
     paddingRight: 8,
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
     backgroundColor: colors.surface,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
@@ -846,36 +1038,20 @@ function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
     color: colors.muted,
     fontSize: 14,
   },
-  insightCard: {
+  todaySummary: {
     marginHorizontal: 18,
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    borderRadius: 20,
-    backgroundColor: colors.accentSoft,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    gap: 6,
+    gap: 8,
   },
-  insightCardPressed: {
-    opacity: 0.7,
-  },
-  insightTitle: {
+  todaySummaryTitle: {
     color: colors.text,
-    fontSize: 18,
-    fontWeight: "400",
-    lineHeight: 24,
-    letterSpacing: -0.3,
+    fontSize: 20,
+    fontWeight: "300",
+    letterSpacing: -0.5,
   },
-  insightDetail: {
+  todaySummaryItem: {
     color: colors.muted,
     fontSize: 15,
-    lineHeight: 21,
-  },
-  insightMore: {
-    color: colors.muted,
-    fontSize: 12,
-    marginTop: 4,
-    fontStyle: "italic",
+    lineHeight: 22,
   },
   modalContainer: {
     flex: 1,

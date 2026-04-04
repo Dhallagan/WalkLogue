@@ -14,7 +14,7 @@ const MAX_CONTEXT_ENTRIES = 8;
 const reflectionCache = new Map<string, string>();
 const reflectionInFlight = new Map<string, Promise<string>>();
 export type ObservationCard = {
-  type: "person" | "task" | "pattern" | "reminder";
+  type: "person" | "task" | "pattern" | "reminder" | "insight";
   title: string;
   detail: string;
 };
@@ -118,9 +118,16 @@ export function peekCachedReflection(
   return reflectionCache.get(cacheKey) ?? null;
 }
 
+export type OpenTask = {
+  title: string;
+  timeframe: string | null;
+  createdAt: string;
+};
+
 export async function generateSmartObservations(
   entries: EntryListItem[],
   timeframe: InsightTimeframe,
+  openTasks: OpenTask[] = [],
 ): Promise<ObservationCard[]> {
   const { apiKey, model } = getInsightsConfig();
   const { cacheKey, contextEntries } = getReflectionRequestContext(
@@ -138,28 +145,36 @@ export async function generateSmartObservations(
 
   const prompt = [
     "Read these journal entries and produce 3-5 observation cards.",
-    "Each card has a type, a short title (2-5 words), and a short detail (one sentence, max 10 words).",
+    "Each card has a type, a short title (2-5 words), and a short detail (one sentence, max 12 words).",
+    "Focus on reflective insights, self-care suggestions, and personal growth. Not errands.",
     "",
     "Types:",
+    '- "insight": a reflective observation with a gentle suggestion. Title = what you noticed. Detail = a thoughtful nudge or remedy.',
     '- "person": someone they mention often. Title = the person\'s name. Detail = relationship or frequency.',
-    '- "task": something they said they want to do or need to finish. Title = the task. Detail = status or question.',
     '- "pattern": a recurring theme, habit, or topic. Title = the theme. Detail = what you noticed.',
     '- "reminder": something unresolved or worth circling back to. Title = the topic. Detail = why it matters.',
     "",
+    "At least 2 cards should be type 'insight' with self-care, wellness, or growth suggestions grounded in the entries.",
+    "",
     "Examples:",
     '[',
+    '  {"type":"insight","title":"You sound stressed","detail":"Try a walk without recording. Just breathe."},',
+    '  {"type":"insight","title":"Sleep keeps coming up","detail":"Maybe track bedtime for a week."},',
     '  {"type":"person","title":"Sarah","detail":"Mentioned 4 times this week."},',
-    '  {"type":"task","title":"Finish CRM project","detail":"Still unresolved since March."},',
-    '  {"type":"pattern","title":"Sleep + noise","detail":"Came up twice this week."},',
-    '  {"type":"reminder","title":"Browserbase","detail":"Did they get back to you?"},',
-    '  {"type":"task","title":"Pull-ups","detail":"Did you hit them today?"}',
+    '  {"type":"pattern","title":"Coding binges","detail":"5-hour sessions, no breaks."},',
+    '  {"type":"reminder","title":"Browserbase","detail":"Did they get back to you?"}',
     ']',
     "",
     "Keep titles and details SHORT. This is a card UI, not paragraphs.",
+    "Do NOT create task cards for things already in the open tasks list below.",
+    "Instead, create reminder cards that nudge about overdue open tasks.",
     "Return JSON only.",
     "",
     `Time window: ${formatTimeframeLabel(timeframe)}.`,
     "",
+    openTasks.length > 0
+      ? `Open tasks (already tracked, don't duplicate):\n${openTasks.map((t) => `- "${t.title}" (${t.timeframe ?? "no deadline"}, created ${t.createdAt})`).join("\n")}\n`
+      : "",
     "Entries:",
     buildEntryContext(contextEntries),
   ].join("\n");
@@ -224,6 +239,70 @@ export async function answerInsightQuestion(
     instructions: answerChain.instructions,
     input: answerChain.prompt,
   });
+}
+
+const todaySummaryCache = new Map<string, string[]>();
+const todaySummaryInFlight = new Map<string, Promise<string[]>>();
+
+export async function generateTodaySummary(
+  entries: EntryListItem[],
+): Promise<string[]> {
+  const { apiKey, model } = getInsightsConfig();
+  const contextEntries = [...entries]
+    .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+    .slice(0, MAX_CONTEXT_ENTRIES);
+  const cacheKey = buildDailyHomeCardsCacheKey(model, contextEntries);
+  const sumKey = `sum::${cacheKey}`;
+
+  const cached = todaySummaryCache.get(sumKey);
+  if (cached) return cached;
+
+  const inFlight = todaySummaryInFlight.get(sumKey);
+  if (inFlight) return inFlight;
+
+  const prompt = [
+    "Read today's journal entries and write 2-4 short bullet points summarizing the day.",
+    "Each bullet is one sentence, max 12 words. Specific, grounded in the entries.",
+    "Write like a friend recapping your day back to you. Casual, not formal.",
+    "Return JSON only. Shape: [\"bullet 1\", \"bullet 2\", ...]",
+    "",
+    "Today's entries:",
+    buildEntryContext(contextEntries),
+  ].join("\n");
+
+  const promise = createInsightsResponse({
+    apiKey,
+    model,
+    instructions: "You summarize a person's day from their journal entries. Ultra-short bullets. Output valid JSON array only.",
+    input: prompt,
+  })
+    .then((response) => {
+      const normalized = response.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+      const parsed = JSON.parse(normalized) as unknown;
+      const bullets = Array.isArray(parsed)
+        ? parsed.filter((item): item is string => typeof item === "string").slice(0, 4)
+        : [];
+      todaySummaryCache.set(sumKey, bullets);
+      todaySummaryInFlight.delete(sumKey);
+      return bullets;
+    })
+    .catch((error) => {
+      todaySummaryInFlight.delete(sumKey);
+      throw error;
+    });
+
+  todaySummaryInFlight.set(sumKey, promise);
+  return promise;
+}
+
+export function peekCachedTodaySummary(entries: EntryListItem[]): string[] | null {
+  if (!hasInsightsConfig()) return null;
+  const { model } = getInsightsConfig();
+  const contextEntries = [...entries]
+    .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+    .slice(0, MAX_CONTEXT_ENTRIES);
+  const cacheKey = buildDailyHomeCardsCacheKey(model, contextEntries);
+  return todaySummaryCache.get(`sum::${cacheKey}`) ?? null;
 }
 
 export async function generateDailyHomeCards(entries: EntryListItem[]) {
@@ -610,10 +689,11 @@ export async function extractTasksFromEntry(
     "Rules:",
     "- title: 2-8 words, specific and actionable.",
     '- timeframe: when they implied they want to do it. Use null if no timeframe mentioned.',
-    "- Only extract things they said they WANT to do, NEED to do, or SHOULD do.",
+    "- Extract anything they said they NEED to do, WANT to do, or SHOULD do.",
+    "- If they said 'I need to take out the trash', that's a task.",
     "- Skip things they already completed in the entry.",
     "- Skip vague feelings or observations that aren't actionable.",
-    '- Good: "Call the dentist", "Finish CRM dashboard", "Start running again"',
+    '- Good: "Take out the trash", "Finish CRM dashboard", "Call mom", "Go for a run", "Get dinner"',
     '- Bad: "Feel tired", "Think about life", "Had a good day"',
     "- If no tasks found, return an empty array [].",
     "",

@@ -28,11 +28,13 @@ import {
 } from "../../src/lib/date";
 import {
   createManualEntry,
+  createTask,
   getAdjacentEntryIds,
   getEntriesForPerson,
   getEntryById,
   getExistingPeopleContext,
   linkPeopleToEntry,
+  markTasksExtracted,
   updateEntry,
   updateEntryDate,
   updateEntryTitle,
@@ -40,6 +42,7 @@ import {
 } from "../../src/modules/journal/repository";
 import {
   extractPeopleFromEntry,
+  extractTasksFromEntry,
   generateEntryTitle,
   generatePersonSummary,
   hasInsightsConfig,
@@ -194,6 +197,7 @@ export default function EntryDetailScreen() {
 
         if (body.trim().length > 0) {
           void autoExtractPeople(entry.id, body, entry.createdAt);
+          void autoExtractTasks(entry.id, body, entry.createdAt);
         }
       }
 
@@ -282,6 +286,32 @@ export default function EntryDetailScreen() {
       }
     } catch (error) {
       console.error("Generate person summary failed", error);
+    }
+  }
+
+  async function autoExtractTasks(
+    entryId: string,
+    entryBody: string,
+    createdAt: Date,
+  ) {
+    try {
+      const extracted = await extractTasksFromEntry({
+        id: entryId,
+        createdAt,
+        source: "manual",
+        title: "",
+        body: entryBody,
+      });
+
+      for (const task of extracted) {
+        await createTask(db, entryId, task.title, task.timeframe);
+      }
+
+      if (extracted.length > 0) {
+        await markTasksExtracted(db, entryId);
+      }
+    } catch (error) {
+      console.error("Auto-extract tasks failed", error);
     }
   }
 

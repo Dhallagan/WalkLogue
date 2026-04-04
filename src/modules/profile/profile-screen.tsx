@@ -168,12 +168,34 @@ export default function ProfileScreen() {
 
       {observations.length > 0 ? (
         <>
+          <View style={styles.wordCloudWrap}>
+            {observations.map((card, index) => {
+              const words = card.title.split(/\s+/);
+              const word = words.length === 1
+                ? words[0]
+                : words.find((w) => w.length >= 4 && w[0] === w[0].toUpperCase()) ?? words[0];
+              return (
+                <Text
+                  key={index}
+                  style={[
+                    styles.wordCloudWord,
+                    {
+                      fontSize: 15 + (observations.length - index) * 3,
+                      opacity: 0.3 + (observations.length - index) / observations.length * 0.55,
+                    },
+                  ]}
+                >
+                  {word}
+                </Text>
+              );
+            })}
+          </View>
           <SectionLabel>Patterns</SectionLabel>
           {observations.map((card, index) => (
             <Panel key={index}>
               <Text style={styles.observationLabel}>
-                {card.type === "person" ? "Who You Talk About"
-                  : card.type === "task" ? "Did You Do This?"
+                {card.type === "insight" ? "Insight"
+                  : card.type === "person" ? "Who You Talk About"
                   : card.type === "reminder" ? "Circle Back"
                   : "Pattern"}
               </Text>
@@ -308,6 +330,19 @@ function createStyles(colors: ColorTokens) {
   },
   panel: {
     gap: spacing.md,
+  },
+  wordCloudWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 16,
+    gap: 14,
+  },
+  wordCloudWord: {
+    color: colors.muted,
+    fontWeight: "300",
+    letterSpacing: -0.3,
   },
   observationLabel: {
     color: colors.muted,

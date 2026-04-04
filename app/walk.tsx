@@ -11,8 +11,9 @@ import {
 } from "../src/components/notebook";
 import { formatCompactDate, formatElapsed } from "../src/lib/date";
 import { useWalkCapture } from "../src/modules/capture/useWalkCapture";
-import { createWalkEntry, updateEntryTitle } from "../src/modules/journal/repository";
+import { createTask, createWalkEntry, markTasksExtracted, updateEntryTitle } from "../src/modules/journal/repository";
 import {
+  extractTasksFromEntry,
   generateEntryTitle,
   hasInsightsConfig,
 } from "../src/modules/insights/openai";
@@ -95,30 +96,14 @@ export default function WalkScreen() {
 
   const recorderStatusText = useMemo(() => {
     if (isTranscribing) {
-      return "Transcribing with Whisper...";
+      return "Transcribing...";
     }
 
     if (isSimulatorRecordingFallback) {
-      return "Simulator mode. Use a physical iPhone to test background recording and Whisper transcription.";
+      return "Simulator mode. Use a physical device to record.";
     }
 
-    if (stepPermission === "granted") {
-      if (stepSource === "fitbit") {
-        return "Recording in the background. Fitbit sync can lag, so steps may update a little later.";
-      }
-
-      return "Recording in the background. Lock your screen and keep talking.";
-    }
-
-    if (stepPermission === "unavailable") {
-      return stepSource === "fitbit"
-        ? "Recording in the background. Fitbit is unavailable in this build."
-        : "Recording in the background. Health data is unavailable on this device.";
-    }
-
-    return stepSource === "fitbit"
-      ? "Recording in the background. Connect Fitbit in Settings to save walk steps."
-      : "Recording in the background. Allow Health access to save walk steps.";
+    return "Recording. Lock your screen and keep talking.";
   }, [isSimulatorRecordingFallback, isTranscribing, stepPermission, stepSource]);
 
   async function handleFinish() {
@@ -182,6 +167,17 @@ export default function WalkScreen() {
             });
           }).catch((error) => {
             console.error("Auto-generate walk title failed", error);
+          });
+
+          void extractTasksFromEntry(entry).then(async (tasks) => {
+            for (const task of tasks) {
+              await createTask(db, entry.id, task.title, task.timeframe);
+            }
+            if (tasks.length > 0) {
+              await markTasksExtracted(db, entry.id);
+            }
+          }).catch((error) => {
+            console.error("Auto-extract tasks failed", error);
           });
         }
 
