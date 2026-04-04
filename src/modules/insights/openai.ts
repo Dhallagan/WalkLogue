@@ -260,8 +260,18 @@ export async function generateTodaySummary(
   const inFlight = todaySummaryInFlight.get(sumKey);
   if (inFlight) return inFlight;
 
+  const hour = new Date().getHours();
+  const timeHint = hour < 12
+    ? "It's morning. Summarize what they've been thinking about so far today."
+    : hour < 17
+    ? "It's the afternoon. Recap their day so far."
+    : hour < 21
+    ? "It's the evening. Wrap up their day."
+    : "It's late at night. Reflect on how their day went, like a closing thought.";
+
   const prompt = [
-    "Read today's journal entries and write a 1-2 sentence summary of the day so far.",
+    "Read today's journal entries and write a 1-2 sentence summary.",
+    timeHint,
     "Be specific, grounded in the entries. Mention names, places, things.",
     "Write like a friend recapping your day back to you. Casual, warm, not formal.",
     "Return JSON only. Shape: [\"sentence\"]",
@@ -682,13 +692,20 @@ export async function extractTasksFromEntry(
 ): Promise<ExtractedTask[]> {
   const { apiKey, model } = getInsightsConfig();
 
+  const now = new Date();
+  const hour = now.getHours();
+  const timeContext = hour >= 20
+    ? `It is currently ${hour > 12 ? hour - 12 : hour} PM. If they say "tomorrow", "in the morning", or reference the next day, use timeframe "tomorrow" not "today".`
+    : "";
+
   const prompt = [
     "Extract any tasks, goals, intentions, or things this person said they want to do from this journal entry.",
     "Return JSON only.",
-    'Shape: [{"title":"short task description","timeframe":"today|this week|this month|someday|null"}]',
+    'Shape: [{"title":"short task description","timeframe":"today|tomorrow|this week|this month|someday|null"}]',
+    timeContext,
     "Rules:",
     "- title: 2-8 words, specific and actionable.",
-    '- timeframe: when they implied they want to do it. Use null if no timeframe mentioned.',
+    '- timeframe: when they implied they want to do it. Use "tomorrow" if they say tomorrow, in the morning (when journaling at night), etc. Use null if no timeframe mentioned.',
     "- Only extract things the person is asking themselves to REMEMBER to do.",
     "- The test: would they be upset if they forgot this? If yes, it's a task.",
     "- 'I need to take out the trash' = task (they want to remember).",

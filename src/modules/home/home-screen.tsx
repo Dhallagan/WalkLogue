@@ -498,7 +498,7 @@ export default function HomeScreen({
 
           {todaySummaryBullets.length > 0 ? (
             <View style={styles.todaySummaryWrap}>
-              <Text style={styles.todaySummaryTitle}>Today so far</Text>
+              <Text style={styles.todaySummaryTitle}>{getSummaryTitle()}</Text>
               <View style={styles.todaySummaryCard}>
                 <Text style={styles.todaySummaryBody}>
                   {todaySummaryBullets.join(" ")}
@@ -785,6 +785,37 @@ type TaskGroup = {
   tasks: TaskRow[];
 };
 
+function getTimeOfDaySlot(): "morning" | "afternoon" | "evening" | "night" {
+  const h = new Date().getHours();
+  if (h < 12) return "morning";
+  if (h < 17) return "afternoon";
+  if (h < 21) return "evening";
+  return "night";
+}
+
+function getSummaryTitle(): string {
+  switch (getTimeOfDaySlot()) {
+    case "morning": return "This morning";
+    case "afternoon": return "Today so far";
+    case "evening": return "This evening";
+    case "night": return "Your day";
+  }
+}
+
+function getTodayTaskLabel(): string {
+  switch (getTimeOfDaySlot()) {
+    case "morning": return "On your plate today";
+    case "afternoon": return "Don't forget";
+    case "evening": return "Wrapping up";
+    case "night": return "Circling back";
+  }
+}
+
+function getOverdueLabel(): string {
+  const labels = ["Did you get to these?", "Still pending", "Don't let these slip"];
+  return labels[Math.floor(Date.now() / 86400000) % labels.length];
+}
+
 function groupTasksByUrgency(tasks: TaskRow[]): TaskGroup[] {
   const overdue: TaskRow[] = [];
   const today: TaskRow[] = [];
@@ -797,6 +828,7 @@ function groupTasksByUrgency(tasks: TaskRow[]): TaskGroup[] {
     } else {
       const tf = (task.timeframe ?? "").toLowerCase();
       if (tf === "today") today.push(task);
+      else if (tf === "tomorrow") today.push(task);
       else if (tf === "this week") thisWeek.push(task);
       else later.push(task);
     }
@@ -805,25 +837,22 @@ function groupTasksByUrgency(tasks: TaskRow[]): TaskGroup[] {
   const groups: TaskGroup[] = [];
 
   if (overdue.length > 0) {
-    const labels = ["Did you close these out?", "You said you'd do these", "These fell through"];
-    groups.push({
-      label: labels[Math.floor(Date.now() / 86400000) % labels.length],
-      tasks: overdue,
-    });
+    groups.push({ label: getOverdueLabel(), tasks: overdue });
   }
 
   if (today.length > 0) {
-    groups.push({ label: "Today", tasks: today });
+    const hasTomorrow = today.some((t) => (t.timeframe ?? "").toLowerCase() === "tomorrow");
+    const allTomorrow = today.every((t) => (t.timeframe ?? "").toLowerCase() === "tomorrow");
+    const label = allTomorrow ? "Tomorrow" : hasTomorrow ? "Today & tomorrow" : getTodayTaskLabel();
+    groups.push({ label, tasks: today });
   }
 
   if (thisWeek.length > 0) {
-    groups.push({ label: "This week", tasks: thisWeek });
+    groups.push({ label: "Make time for these", tasks: thisWeek });
   }
 
   if (later.length > 0) {
-    const tf = later[0].timeframe?.toLowerCase();
-    const label = tf === "this month" ? "Finish this month" : "You mentioned these";
-    groups.push({ label, tasks: later });
+    groups.push({ label: "On your radar", tasks: later });
   }
 
   return groups;
@@ -833,6 +862,7 @@ function getTimeframePriority(timeframe: string | null): number {
   if (!timeframe) return 4;
   const t = timeframe.toLowerCase();
   if (t === "today") return 0;
+  if (t === "tomorrow") return 0.5;
   if (t === "this week") return 1;
   if (t === "this month") return 2;
   if (t === "someday") return 3;
@@ -843,6 +873,7 @@ function isOverdue(task: TaskRow): boolean {
   const age = Math.floor((Date.now() - new Date(task.created_at).getTime()) / 86400000);
   const tf = (task.timeframe ?? "").toLowerCase();
   if (tf === "today" && age >= 1) return true;
+  if (tf === "tomorrow" && age >= 2) return true;
   if (tf === "this week" && age >= 7) return true;
   if (tf === "this month" && age >= 30) return true;
   return false;
