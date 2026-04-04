@@ -119,6 +119,32 @@ export async function initializeDatabase(db: SQLiteDatabase) {
     `);
   }
 
+  if (!journalColumns.some((column) => column.name === "tasks_extracted_at")) {
+    await db.execAsync(`
+      ALTER TABLE journal_entries
+      ADD COLUMN tasks_extracted_at TEXT;
+    `);
+  }
+
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY NOT NULL,
+      entry_id TEXT NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      timeframe TEXT,
+      created_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+  `);
+
+  const taskColumns = await db.getAllAsync<{ name: string }>(
+    "PRAGMA table_info(tasks)",
+  );
+
+  if (!taskColumns.some((column) => column.name === "timeframe")) {
+    await db.execAsync(`ALTER TABLE tasks ADD COLUMN timeframe TEXT;`);
+  }
 }
 
 export async function countUtcEntries(db: SQLiteDatabase) {
@@ -382,6 +408,86 @@ export async function deleteEntry(db: SQLiteDatabase, id: string) {
     );
   });
   bumpEntriesVersion();
+}
+
+// ── Tasks ────────────────────────────────────────
+
+export type TaskRow = {
+  id: string;
+  entry_id: string;
+  title: string;
+  status: "open" | "done" | "skipped";
+  timeframe: string | null;
+  created_at: string;
+  completed_at: string | null;
+};
+
+export async function listOpenTasks(db: SQLiteDatabase): Promise<TaskRow[]> {
+  return db.getAllAsync<TaskRow>(
+    `SELECT * FROM tasks WHERE status = 'open' ORDER BY created_at DESC`,
+  );
+}
+
+export async function listAllTasks(db: SQLiteDatabase): Promise<TaskRow[]> {
+  return db.getAllAsync<TaskRow>(
+    `SELECT * FROM tasks ORDER BY created_at DESC`,
+  );
+}
+
+export async function createTask(
+  db: SQLiteDatabase,
+  entryId: string,
+  title: string,
+  timeframe: string | null,
+) {
+  const id = createId("task");
+  await db.runAsync(
+    `INSERT INTO tasks (id, entry_id, title, status, timeframe, created_at) VALUES (?, ?, ?, 'open', ?, ?)`,
+    id,
+    entryId,
+    title,
+    timeframe,
+    formatLocalISOString(new Date()),
+  );
+  return id;
+}
+
+export async function completeTask(db: SQLiteDatabase, id: string) {
+  await db.runAsync(
+    `UPDATE tasks SET status = 'done', completed_at = ? WHERE id = ?`,
+    formatLocalISOString(new Date()),
+    id,
+  );
+}
+
+export async function skipTask(db: SQLiteDatabase, id: string) {
+  await db.runAsync(
+    `UPDATE tasks SET status = 'skipped', completed_at = ? WHERE id = ?`,
+    formatLocalISOString(new Date()),
+    id,
+  );
+}
+
+export async function getEntriesNeedingTaskExtraction(
+  db: SQLiteDatabase,
+): Promise<EntryListItem[]> {
+  const rows = await db.getAllAsync<EntryRow>(
+    `SELECT je.id, je.created_at, je.source, je.title, je.title_emoji, je.body, je.session_id,
+            ws.started_at, ws.ended_at, ws.duration_sec, ws.step_count
+     FROM journal_entries je
+     LEFT JOIN walk_sessions ws ON ws.entry_id = je.id
+     WHERE je.tasks_extracted_at IS NULL AND length(trim(je.body)) > 0
+     ORDER BY je.created_at DESC`,
+  );
+  return rows.map(mapEntryRow);
+}
+
+export async function markTasksExtracted(db: SQLiteDatabase, entryId: string) {
+  await db.runAsync(
+    `UPDATE journal_entries SET tasks_extracted_at = ? WHERE id = ?`,
+    formatLocalISOString(new Date()),
+    entryId,
+  );
 }
 
 export async function getAdjacentEntryIds(

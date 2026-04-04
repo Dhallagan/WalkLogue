@@ -13,6 +13,14 @@ const DEFAULT_INSIGHTS_MODEL = "gpt-5-mini";
 const MAX_CONTEXT_ENTRIES = 8;
 const reflectionCache = new Map<string, string>();
 const reflectionInFlight = new Map<string, Promise<string>>();
+export type ObservationCard = {
+  type: "person" | "task" | "pattern" | "reminder";
+  title: string;
+  detail: string;
+};
+
+const observationsCache = new Map<string, ObservationCard[]>();
+const observationsInFlight = new Map<string, Promise<ObservationCard[]>>();
 const dailyHomeCardsCache = new Map<string, DailyHomeCards>();
 const dailyHomeCardsInFlight = new Map<string, Promise<DailyHomeCards>>();
 
@@ -65,16 +73,13 @@ export async function generateReflection(
   }
 
   const prompt = [
-    "Write a concise reflection blurb for the user's journal app.",
-    "Ground every statement in the provided entries.",
-    "Keep it to 3 short paragraphs max.",
-    "Focus on recurring themes, energy, tension, and what seems to matter most right now.",
-    `The requested time window is ${formatTimeframeLabel(timeframe)}.`,
-    "Do not mention missing data, prompt design, or that you are an AI.",
+    "Write a 1-2 sentence reflection for the user's journal.",
+    "Be specific. Name the actual things they wrote about.",
+    "Focus on what seems to matter most right now.",
+    `Time window: ${formatTimeframeLabel(timeframe)}.`,
+    "Do not mention missing data or that you are an AI.",
     "",
-    buildSnapshotContext(snapshot),
-    "",
-    "Recent entries:",
+    "Entries:",
     buildEntryContext(contextEntries),
   ].join("\n");
 
@@ -111,6 +116,97 @@ export function peekCachedReflection(
   const { model } = getInsightsConfig();
   const { cacheKey } = getReflectionRequestContext(entries, timeframe, model);
   return reflectionCache.get(cacheKey) ?? null;
+}
+
+export async function generateSmartObservations(
+  entries: EntryListItem[],
+  timeframe: InsightTimeframe,
+): Promise<ObservationCard[]> {
+  const { apiKey, model } = getInsightsConfig();
+  const { cacheKey, contextEntries } = getReflectionRequestContext(
+    entries,
+    timeframe,
+    model,
+  );
+
+  const obsKey = `obs::${cacheKey}`;
+  const cached = observationsCache.get(obsKey);
+  if (cached) return cached;
+
+  const inFlight = observationsInFlight.get(obsKey);
+  if (inFlight) return inFlight;
+
+  const prompt = [
+    "Read these journal entries and produce 3-5 observation cards.",
+    "Each card has a type, a short title (2-5 words), and a short detail (one sentence, max 10 words).",
+    "",
+    "Types:",
+    '- "person": someone they mention often. Title = the person\'s name. Detail = relationship or frequency.',
+    '- "task": something they said they want to do or need to finish. Title = the task. Detail = status or question.',
+    '- "pattern": a recurring theme, habit, or topic. Title = the theme. Detail = what you noticed.',
+    '- "reminder": something unresolved or worth circling back to. Title = the topic. Detail = why it matters.',
+    "",
+    "Examples:",
+    '[',
+    '  {"type":"person","title":"Sarah","detail":"Mentioned 4 times this week."},',
+    '  {"type":"task","title":"Finish CRM project","detail":"Still unresolved since March."},',
+    '  {"type":"pattern","title":"Sleep + noise","detail":"Came up twice this week."},',
+    '  {"type":"reminder","title":"Browserbase","detail":"Did they get back to you?"},',
+    '  {"type":"task","title":"Pull-ups","detail":"Did you hit them today?"}',
+    ']',
+    "",
+    "Keep titles and details SHORT. This is a card UI, not paragraphs.",
+    "Return JSON only.",
+    "",
+    `Time window: ${formatTimeframeLabel(timeframe)}.`,
+    "",
+    "Entries:",
+    buildEntryContext(contextEntries),
+  ].join("\n");
+
+  const promise = createInsightsResponse({
+    apiKey,
+    model,
+    instructions:
+      "You generate structured observation cards for a journal app. Ultra-short titles and details. Output valid JSON array only.",
+    input: prompt,
+  })
+    .then((response) => {
+      const normalized = response.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+      const parsed = JSON.parse(normalized) as unknown;
+      const cards = Array.isArray(parsed)
+        ? parsed
+            .filter(
+              (item: unknown): item is ObservationCard =>
+                typeof item === "object" &&
+                item !== null &&
+                typeof (item as Record<string, unknown>).type === "string" &&
+                typeof (item as Record<string, unknown>).title === "string" &&
+                typeof (item as Record<string, unknown>).detail === "string",
+            )
+            .slice(0, 5)
+        : [];
+      observationsCache.set(obsKey, cards);
+      observationsInFlight.delete(obsKey);
+      return cards;
+    })
+    .catch((error) => {
+      observationsInFlight.delete(obsKey);
+      throw error;
+    });
+
+  observationsInFlight.set(obsKey, promise);
+  return promise;
+}
+
+export function peekCachedObservations(
+  entries: EntryListItem[],
+  timeframe: InsightTimeframe,
+): ObservationCard[] | null {
+  if (!hasInsightsConfig()) return null;
+  const { model } = getInsightsConfig();
+  const { cacheKey } = getReflectionRequestContext(entries, timeframe, model);
+  return observationsCache.get(`obs::${cacheKey}`) ?? null;
 }
 
 export async function answerInsightQuestion(
@@ -493,6 +589,103 @@ async function processPeopleBackfillQueue(
   }
 
   onAllDone();
+}
+
+// ── Task extraction ────────────────────────────────────────
+
+export type ExtractedTask = {
+  title: string;
+  timeframe: string | null;
+};
+
+export async function extractTasksFromEntry(
+  entry: EntryListItem,
+): Promise<ExtractedTask[]> {
+  const { apiKey, model } = getInsightsConfig();
+
+  const prompt = [
+    "Extract any tasks, goals, intentions, or things this person said they want to do from this journal entry.",
+    "Return JSON only.",
+    'Shape: [{"title":"short task description","timeframe":"today|this week|this month|someday|null"}]',
+    "Rules:",
+    "- title: 2-8 words, specific and actionable.",
+    '- timeframe: when they implied they want to do it. Use null if no timeframe mentioned.',
+    "- Only extract things they said they WANT to do, NEED to do, or SHOULD do.",
+    "- Skip things they already completed in the entry.",
+    "- Skip vague feelings or observations that aren't actionable.",
+    '- Good: "Call the dentist", "Finish CRM dashboard", "Start running again"',
+    '- Bad: "Feel tired", "Think about life", "Had a good day"',
+    "- If no tasks found, return an empty array [].",
+    "",
+    "Entry:",
+    entry.body,
+  ].join("\n");
+
+  const response = await createInsightsResponse({
+    apiKey,
+    model,
+    instructions:
+      "You extract actionable tasks and intentions from journal entries. Output valid JSON only.",
+    input: prompt,
+  });
+
+  const normalized = response.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const parsed = JSON.parse(normalized) as unknown;
+
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .filter(
+      (item: unknown): item is { title: string; timeframe: string | null } =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof (item as Record<string, unknown>).title === "string" &&
+        (item as Record<string, unknown>).title !== "",
+    )
+    .map((item) => ({
+      title: item.title.trim().slice(0, 100),
+      timeframe:
+        typeof item.timeframe === "string" && item.timeframe.trim()
+          ? item.timeframe.trim()
+          : null,
+    }));
+}
+
+const taskBackfillInFlight = new Set<string>();
+
+export function backfillTasks(
+  entries: EntryListItem[],
+  onExtracted: (entryId: string, tasks: ExtractedTask[]) => Promise<void>,
+) {
+  if (!hasInsightsConfig()) return;
+
+  const candidates = entries.filter(
+    (entry) =>
+      entry.body.trim().length > 0 && !taskBackfillInFlight.has(entry.id),
+  );
+
+  if (candidates.length === 0) return;
+
+  void processTaskBackfillQueue(candidates, onExtracted);
+}
+
+async function processTaskBackfillQueue(
+  entries: EntryListItem[],
+  onExtracted: (entryId: string, tasks: ExtractedTask[]) => Promise<void>,
+) {
+  for (const entry of entries) {
+    if (taskBackfillInFlight.has(entry.id)) continue;
+    taskBackfillInFlight.add(entry.id);
+
+    try {
+      const tasks = await extractTasksFromEntry(entry);
+      await onExtracted(entry.id, tasks);
+    } catch (error) {
+      console.error("Task extraction failed for", entry.id, error);
+    } finally {
+      taskBackfillInFlight.delete(entry.id);
+    }
+  }
 }
 
 export function peekCachedDailyHomeCards(entries: EntryListItem[]) {

@@ -356,7 +356,7 @@ export default function SettingsScreen() {
         <View style={styles.groupCard}>
           <SettingRow
             label="Privacy Policy"
-            onPress={() => void Linking.openURL("https://walklog.vercel.app/privacy")}
+            onPress={() => void Linking.openURL("https://walklog-site.vercel.app/privacy")}
             chevron
           />
           <View style={styles.separator} />

@@ -29,8 +29,6 @@ type ChatMessage = {
   content: string;
 };
 
-let persistedMessages: ChatMessage[] = [];
-let persistedDraft = "";
 
 export default function InsightsScreen({
   onNavigateHome,
@@ -45,8 +43,8 @@ export default function InsightsScreen({
   const chatDraftRef = useRef("");
   const loadedVersionRef = useRef(-1);
   const [entries, setEntries] = useState<EntryListItem[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>(persistedMessages);
-  const [chatDraft, setChatDraft] = useState(persistedDraft);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatDraft, setChatDraft] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
   const [profilePreview, setProfilePreview] = useState("");
   const [profilePreviewError, setProfilePreviewError] = useState<string | null>(null);
@@ -101,14 +99,6 @@ export default function InsightsScreen({
     ],
     [],
   );
-
-  useEffect(() => {
-    persistedMessages = messages;
-  }, [messages]);
-
-  useEffect(() => {
-    persistedDraft = chatDraft;
-  }, [chatDraft]);
 
   useEffect(() => {
     if (!isSending) {

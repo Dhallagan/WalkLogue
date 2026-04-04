@@ -15,8 +15,11 @@ import {
 } from "../insights/analysis";
 import {
   generateReflection,
+  generateSmartObservations,
   hasInsightsConfig,
+  peekCachedObservations,
   peekCachedReflection,
+  type ObservationCard,
 } from "../insights/openai";
 import { useTheme, useThemeColors, spacing } from "../../theme";
 
@@ -32,6 +35,7 @@ export default function ProfileScreen() {
   const [reflection, setReflection] = useState("");
   const [reflectionError, setReflectionError] = useState<string | null>(null);
   const [isRefreshingReflection, setIsRefreshingReflection] = useState(false);
+  const [observations, setObservations] = useState<ObservationCard[]>([]);
   const aiReady = hasInsightsConfig();
 
   useFocusEffect(
@@ -44,7 +48,6 @@ export default function ProfileScreen() {
         }
 
         setEntries(loadedEntries);
-        setSnapshot(buildInsightSnapshot(loadedEntries, timeframe));
 
         if (aiReady && loadedEntries.length > 0) {
           const cachedReflection = peekCachedReflection(loadedEntries, timeframe);
@@ -53,10 +56,18 @@ export default function ProfileScreen() {
             setReflectionError(null);
             setReflection(cachedReflection);
             setIsRefreshingReflection(false);
-            return;
+          } else {
+            void loadReflection(loadedEntries, timeframe, () => isActive);
           }
 
-          void loadReflection(loadedEntries, timeframe, () => isActive);
+          const cachedObs = peekCachedObservations(loadedEntries, timeframe);
+          if (cachedObs) {
+            setObservations(cachedObs);
+          } else {
+            void generateSmartObservations(loadedEntries, timeframe)
+              .then((obs) => { if (isActive) setObservations(obs); })
+              .catch(() => {});
+          }
           return;
         }
 
@@ -142,65 +153,36 @@ export default function ProfileScreen() {
 
       <Panel tone="soft">
         <Text style={styles.heroEyebrow}>Top Of Mind</Text>
-        <Text style={styles.heroTitle}>
-          {snapshot?.lead ?? "Reading your journal profile..."}
-        </Text>
         {entries.length === 0 ? (
           <Text style={styles.heroBody}>
-            Once you have entries, this profile can start showing what keeps coming up.
-          </Text>
-        ) : !aiReady ? (
-          <Text style={styles.heroBody}>
-            Add `EXPO_PUBLIC_OPENAI_API_KEY` to enable the reflection blurb here.
+            Once you have entries, this will show what keeps coming up.
           </Text>
         ) : isRefreshingReflection ? (
-          <Text style={styles.heroBody}>Reading this time window...</Text>
+          <Text style={styles.heroBody}>Reading...</Text>
         ) : reflectionError ? (
           <Text style={styles.heroBody}>{reflectionError}</Text>
-        ) : (
+        ) : reflection ? (
           <Text style={styles.heroBody}>{reflection}</Text>
-        )}
+        ) : null}
       </Panel>
 
-      <SectionLabel>Volume</SectionLabel>
-      <View style={styles.metricGrid}>
-        <MetricCard
-          label="Entries"
-          value={snapshot ? `${snapshot.activeEntryCount}` : "--"}
-          note="In this window"
-        />
-        <MetricCard
-          label="Walks"
-          value={snapshot ? `${snapshot.walkCount}` : "--"}
-          note="Voice captures"
-        />
-        <MetricCard
-          label="Words"
-          value={snapshot ? `${snapshot.totalWords}` : "--"}
-          note="Journal volume"
-        />
-        <MetricCard
-          label="Steps"
-          value={snapshot ? `${snapshot.totalSteps}` : "--"}
-          note="Tracked walks"
-        />
-      </View>
-
-      <SectionLabel>Patterns</SectionLabel>
-      <Panel style={styles.panel}>
-        <PatternRow
-          label="Average entry size"
-          value={snapshot ? `${snapshot.averageWords} words` : "--"}
-        />
-        <PatternRow
-          label="Most active day"
-          value={snapshot?.strongestDay ?? "No data yet"}
-        />
-<PatternRow
-          label="Strongest lenses"
-          value={snapshot?.focusAreas.join(", ") || "No clear lens yet"}
-        />
-      </Panel>
+      {observations.length > 0 ? (
+        <>
+          <SectionLabel>Patterns</SectionLabel>
+          {observations.map((card, index) => (
+            <Panel key={index}>
+              <Text style={styles.observationLabel}>
+                {card.type === "person" ? "Who You Talk About"
+                  : card.type === "task" ? "Did You Do This?"
+                  : card.type === "reminder" ? "Circle Back"
+                  : "Pattern"}
+              </Text>
+              <Text style={styles.observationTitle}>{card.title}</Text>
+              <Text style={styles.observationDetail}>{card.detail}</Text>
+            </Panel>
+          ))}
+        </>
+      ) : null}
 
       {weeklyDigest ? (
         <>
@@ -270,42 +252,6 @@ export default function ProfileScreen() {
   );
 }
 
-function MetricCard({
-  label,
-  value,
-  note,
-}: {
-  label: string;
-  value: string;
-  note: string;
-}) {
-  const { colors } = useThemeColors();
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  return (
-    <Panel style={styles.metricCard}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricNote}>{note}</Text>
-    </Panel>
-  );
-}
-
-function PatternRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  const { colors } = useThemeColors();
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  return (
-    <View style={styles.patternRow}>
-      <Text style={styles.patternLabel}>{label}</Text>
-      <Text style={styles.patternValue}>{value}</Text>
-    </View>
-  );
-}
 
 type ColorTokens = ReturnType<typeof useTheme>["colors"];
 
@@ -355,62 +301,31 @@ function createStyles(colors: ColorTokens) {
     fontFamily: "Courier",
     textTransform: "uppercase",
   },
-  heroTitle: {
-    color: colors.text,
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: "300",
-    letterSpacing: -0.8,
-  },
   heroBody: {
     color: colors.text,
     fontSize: 15,
     lineHeight: 22,
   },
-  metricGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-  },
-  metricCard: {
-    width: "48%",
-    minWidth: 150,
-  },
-  metricLabel: {
-    color: colors.muted,
-    fontSize: 11,
-    letterSpacing: 1,
-    fontFamily: "Courier",
-    textTransform: "uppercase",
-  },
-  metricValue: {
-    color: colors.text,
-    fontSize: 28,
-    lineHeight: 32,
-    fontWeight: "300",
-  },
-  metricNote: {
-    color: colors.muted,
-    fontSize: 13,
-    lineHeight: 18,
-  },
   panel: {
     gap: spacing.md,
   },
-  patternRow: {
-    gap: 4,
-  },
-  patternLabel: {
+  observationLabel: {
     color: colors.muted,
     fontSize: 11,
     letterSpacing: 1,
     fontFamily: "Courier",
     textTransform: "uppercase",
   },
-  patternValue: {
+  observationTitle: {
     color: colors.text,
     fontSize: 17,
-    lineHeight: 24,
+    fontWeight: "500",
+    letterSpacing: -0.3,
+  },
+  observationDetail: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
   },
   digestButton: {
     alignSelf: "center",

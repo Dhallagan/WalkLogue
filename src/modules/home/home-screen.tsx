@@ -17,8 +17,15 @@ import * as SecureStore from "expo-secure-store";
 import { PaperRecordButton } from "../../components/notebook";
 import { formatDayKey, formatLongDay } from "../../lib/date";
 import {
+  completeTask,
   countUtcEntries,
+  createTask,
+  getEntriesNeedingTaskExtraction,
+  listOpenTasks,
+  markTasksExtracted,
   migrateUtcToLocal,
+  skipTask,
+  type TaskRow,
 } from "../journal/repository";
 import {
   backfillMissingTitles,
@@ -51,7 +58,15 @@ import {
   buildInsightSnapshot,
   type InsightSnapshot,
 } from "../insights/analysis";
-import { generateReflection, peekCachedReflection } from "../insights/openai";
+import {
+  backfillTasks,
+  generateReflection,
+  generateSmartObservations,
+  peekCachedObservations,
+  peekCachedReflection,
+  type ExtractedTask,
+  type ObservationCard,
+} from "../insights/openai";
 import { useTheme, useThemeColors } from "../../theme";
 
 type WeeklyDigest = {
@@ -77,17 +92,6 @@ type TodayOverview = {
   stepsDetail: string;
 };
 
-type HomeCard =
-  | {
-      kind: "attention";
-      body: string;
-    }
-  | {
-      kind: "daily";
-      thinkingAbout: string;
-      whatSeemsTrue: string;
-      closeTheDay?: string | null;
-    };
 
 const initialMemoryState: HomeScreenMemoryState = {
   entries: [],
@@ -129,6 +133,8 @@ export default function HomeScreen({
   );
   const [weeklyDigest, setWeeklyDigest] = useState<WeeklyDigest | null>(null);
   const [showWeeklyModal, setShowWeeklyModal] = useState(false);
+  const [observations, setObservations] = useState<ObservationCard[]>([]);
+  const [openTasks, setOpenTasks] = useState<TaskRow[]>([]);
   const hasCheckedUtcRef = useRef(false);
   const { colors } = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -178,6 +184,15 @@ export default function HomeScreen({
         void loadDailyHomeCards(todayEntries);
       }
 
+      if (aiReady && nextEntries.length >= 3) {
+        const cachedObs = peekCachedObservations(nextEntries, "30d");
+        if (cachedObs) {
+          setObservations(cachedObs);
+        } else {
+          void generateSmartObservations(nextEntries, "30d").then(setObservations).catch(() => {});
+        }
+      }
+
       backfillMissingTitles(nextEntries, (entryId, title, emoji) => {
         void updateEntryTitle(db, entryId, {
           title,
@@ -187,7 +202,10 @@ export default function HomeScreen({
 
       if (aiReady) {
         void runPeopleBackfill();
+        void runTaskBackfill();
       }
+
+      void loadOpenTasks();
 
       if (!hasCheckedUtcRef.current) {
         hasCheckedUtcRef.current = true;
@@ -257,6 +275,31 @@ export default function HomeScreen({
       );
     } catch (error) {
       console.error("People backfill failed", error);
+    }
+  }, [db]);
+
+  const loadOpenTasks = useCallback(async () => {
+    try {
+      const tasks = await listOpenTasks(db);
+      setOpenTasks(tasks);
+    } catch (error) {
+      console.error("Failed to load tasks", error);
+    }
+  }, [db]);
+
+  const runTaskBackfill = useCallback(async () => {
+    try {
+      const needsExtraction = await getEntriesNeedingTaskExtraction(db);
+      if (needsExtraction.length === 0) return;
+
+      backfillTasks(needsExtraction, async (entryId, tasks) => {
+        for (const task of tasks) {
+          await createTask(db, entryId, task.title, task.timeframe);
+        }
+        await markTasksExtracted(db, entryId);
+      });
+    } catch (error) {
+      console.error("Task backfill failed", error);
     }
   }, [db]);
 
@@ -331,10 +374,6 @@ export default function HomeScreen({
         todaySteps,
       }),
     [entries, hasLoadedOnce, stepPermission, stepSource, todaySteps],
-  );
-  const homeCards = useMemo(
-    () => buildHomeCards(entries, stepPermission, dailyHomeCards, aiReady),
-    [aiReady, dailyHomeCards, entries, stepPermission],
   );
 
   const handleOpenProfile = useCallback(() => {
@@ -416,31 +455,48 @@ export default function HomeScreen({
             </View>
           </View>
 
-          <View style={styles.cardsStack}>
-            {homeCards.map((card) => (
-              card.kind === "attention" ? (
-                <Pressable
-                  key={card.body}
-                  onPress={() => router.push("/settings")}
-                  style={({ pressed }) => [styles.homeCard, styles.homeCardAlert, pressed && styles.homeCardAlertPressed]}
-                >
-                  <Text style={styles.homeCardBody}>{card.body}</Text>
-                  <Text style={styles.homeCardAction}>Settings →</Text>
-                </Pressable>
-              ) : (
-                <View key={card.thinkingAbout} style={styles.homeCard}>
-                  <Text style={styles.homeCardLabel}>Top Of Mind</Text>
-                  <Text style={styles.homeCardBody}>{card.thinkingAbout}</Text>
-                  {card.whatSeemsTrue && card.whatSeemsTrue !== card.thinkingAbout ? (
-                    <Text style={styles.homeCardBody}>{card.whatSeemsTrue}</Text>
-                  ) : null}
-                  {card.closeTheDay ? (
-                    <Text style={styles.homeCardBodyMuted}>{card.closeTheDay}</Text>
-                  ) : null}
+          {openTasks.length > 0 ? (
+            <View style={styles.tasksList}>
+              {openTasks.map((task) => (
+                <View key={task.id} style={styles.taskCard}>
+                  <View style={styles.taskContent}>
+                    <Text style={styles.taskTitle}>{task.title}</Text>
+                    {task.timeframe ? (
+                      <Text style={styles.taskTimeframe}>{task.timeframe}</Text>
+                    ) : null}
+                  </View>
+                  <View style={styles.taskActions}>
+                    <Pressable
+                      onPress={async () => {
+                        await completeTask(db, task.id);
+                        void loadOpenTasks();
+                      }}
+                      style={({ pressed }) => [
+                        styles.taskButton,
+                        styles.taskButtonDone,
+                        pressed && { opacity: 0.6 },
+                      ]}
+                    >
+                      <Text style={styles.taskButtonDoneText}>{"\u2713"}</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={async () => {
+                        await skipTask(db, task.id);
+                        void loadOpenTasks();
+                      }}
+                      style={({ pressed }) => [
+                        styles.taskButton,
+                        pressed && { opacity: 0.6 },
+                      ]}
+                    >
+                      <Text style={styles.taskButtonSkipText}>{"\u2717"}</Text>
+                    </Pressable>
+                  </View>
                 </View>
-              )
-            ))}
-          </View>
+              ))}
+            </View>
+          ) : null}
+
 
         </ScrollView>
 
@@ -612,104 +668,6 @@ function isJournalEntryComplete(entry: EntryListItem) {
   return entry.body.trim().length > 0;
 }
 
-function buildHomeCards(
-  entries: EntryListItem[],
-  stepPermission: StepPermissionStatus,
-  dailyHomeCards: DailyHomeCards | null,
-  aiReady: boolean,
-): HomeCard[] {
-  const todayEntries = entries.filter((entry) => isSameCalendarDay(entry.createdAt, new Date()));
-  const todayCompleteEntries = todayEntries.filter((entry) => isJournalEntryComplete(entry));
-  const unfinishedEntry = entries.find(
-    (entry) => isSameCalendarDay(entry.createdAt, new Date()) && !isJournalEntryComplete(entry),
-  );
-  const cards: HomeCard[] = [];
-
-  if (unfinishedEntry) {
-    cards.push({
-      kind: "attention",
-      body: "You left one entry unfinished today.",
-    });
-  } else if (stepPermission !== "granted") {
-    cards.push({
-      kind: "attention",
-      body: "Turn tracking on if you want your walks counted.",
-    });
-  }
-
-  cards.push(buildDailyCard(todayCompleteEntries, dailyHomeCards, aiReady));
-
-  return cards;
-}
-
-function buildDailyCard(
-  entries: EntryListItem[],
-  dailyHomeCards: DailyHomeCards | null,
-  aiReady: boolean,
-): HomeCard {
-  return {
-    kind: "daily",
-    thinkingAbout: buildThinkingAbout(entries, dailyHomeCards, aiReady),
-    whatSeemsTrue: buildWhatSeemsTrue(entries, dailyHomeCards, aiReady),
-    closeTheDay: buildCloseTheDay(dailyHomeCards, aiReady),
-  };
-}
-
-function buildThinkingAbout(
-  entries: EntryListItem[],
-  dailyHomeCards: DailyHomeCards | null,
-  aiReady: boolean,
-) {
-  if (entries.length === 0) {
-    return "Nothing logged today yet.";
-  }
-
-  if (aiReady && dailyHomeCards?.thinkingAbout) {
-    return dailyHomeCards.thinkingAbout;
-  }
-
-  const wordCount = entries.reduce((sum, entry) => sum + countWords(entry.body), 0);
-  const walkCount = entries.filter((entry) => entry.source === "walk").length;
-  const parts = [entries.length === 1 ? "1 entry" : `${entries.length} entries`];
-
-  if (wordCount > 0) {
-    parts.push(`${wordCount} words`);
-  }
-
-  if (walkCount > 0) {
-    parts.push(walkCount === 1 ? "1 walk" : `${walkCount} walks`);
-  }
-
-  return parts.join(", ") + ".";
-}
-
-function buildWhatSeemsTrue(
-  entries: EntryListItem[],
-  dailyHomeCards: DailyHomeCards | null,
-  aiReady: boolean,
-) {
-  if (entries.length === 0) {
-    return "The day has not taken shape on the page yet.";
-  }
-
-  if (aiReady && dailyHomeCards?.whatSeemsTrue) {
-    return dailyHomeCards.whatSeemsTrue;
-  }
-
-  return "A fuller pattern should emerge once there is more written today.";
-}
-
-function buildCloseTheDay(
-  dailyHomeCards: DailyHomeCards | null,
-  aiReady: boolean,
-): string | undefined {
-  if (!aiReady) {
-    return undefined;
-  }
-
-  return dailyHomeCards?.closeTheDay ?? undefined;
-}
-
 function countWords(body: string) {
   return tokenize(body).length;
 }
@@ -833,45 +791,91 @@ function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
     fontSize: 14,
     lineHeight: 20,
   },
-  cardsStack: {
+  tasksList: {
     paddingHorizontal: 18,
-    gap: 10,
-  },
-  homeCard: {
     gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 22,
+  },
+  taskCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 16,
+    paddingRight: 8,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    gap: 12,
+  },
+  taskContent: {
+    flex: 1,
+    gap: 2,
+  },
+  taskTitle: {
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  taskTimeframe: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  taskActions: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  taskButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: colors.accentSoft,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
-  homeCardAlert: {
-    backgroundColor: colors.surface,
+  taskButtonDone: {
+    backgroundColor: colors.accentSoft,
   },
-  homeCardAlertPressed: {
+  taskButtonDoneText: {
+    color: colors.success,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  taskButtonSkipText: {
+    color: colors.muted,
+    fontSize: 14,
+  },
+  insightCard: {
+    marginHorizontal: 18,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    borderRadius: 20,
+    backgroundColor: colors.accentSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    gap: 6,
+  },
+  insightCardPressed: {
     opacity: 0.7,
   },
-  homeCardAction: {
-    alignSelf: "flex-end",
-    color: colors.muted,
-    fontSize: 11,
-    letterSpacing: 1,
-    fontFamily: "Courier",
-    textTransform: "uppercase",
-    marginTop: 2,
-  },
-  homeCardLabel: {
-    color: colors.muted,
-    fontSize: 11,
-    letterSpacing: 1,
-    fontFamily: "Courier",
-    textTransform: "uppercase",
-  },
-  homeCardBody: {
+  insightTitle: {
     color: colors.text,
+    fontSize: 18,
+    fontWeight: "400",
+    lineHeight: 24,
+    letterSpacing: -0.3,
+  },
+  insightDetail: {
+    color: colors.muted,
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 21,
+  },
+  insightMore: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: "italic",
   },
   modalContainer: {
     flex: 1,
