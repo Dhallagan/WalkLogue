@@ -261,10 +261,10 @@ export async function generateTodaySummary(
   if (inFlight) return inFlight;
 
   const prompt = [
-    "Read today's journal entries and write 2-4 short bullet points summarizing the day.",
-    "Each bullet is one sentence, max 12 words. Specific, grounded in the entries.",
-    "Write like a friend recapping your day back to you. Casual, not formal.",
-    "Return JSON only. Shape: [\"bullet 1\", \"bullet 2\", ...]",
+    "Read today's journal entries and write a 1-2 sentence summary of the day so far.",
+    "Be specific, grounded in the entries. Mention names, places, things.",
+    "Write like a friend recapping your day back to you. Casual, warm, not formal.",
+    "Return JSON only. Shape: [\"sentence\"]",
     "",
     "Today's entries:",
     buildEntryContext(contextEntries),
@@ -273,14 +273,14 @@ export async function generateTodaySummary(
   const promise = createInsightsResponse({
     apiKey,
     model,
-    instructions: "You summarize a person's day from their journal entries. Ultra-short bullets. Output valid JSON array only.",
+    instructions: "You summarize a person's day from their journal entries. Brief flowing prose, not bullets. Output valid JSON array with 1 string only.",
     input: prompt,
   })
     .then((response) => {
       const normalized = response.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
       const parsed = JSON.parse(normalized) as unknown;
       const bullets = Array.isArray(parsed)
-        ? parsed.filter((item): item is string => typeof item === "string").slice(0, 4)
+        ? parsed.filter((item): item is string => typeof item === "string").slice(0, 2)
         : [];
       todaySummaryCache.set(sumKey, bullets);
       todaySummaryInFlight.delete(sumKey);

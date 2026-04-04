@@ -497,13 +497,13 @@ export default function HomeScreen({
           </View>
 
           {todaySummaryBullets.length > 0 ? (
-            <View style={styles.todaySummary}>
+            <View style={styles.todaySummaryWrap}>
               <Text style={styles.todaySummaryTitle}>Today so far</Text>
-              {todaySummaryBullets.map((bullet, i) => (
-                <Text key={i} style={styles.todaySummaryItem}>
-                  {"· "}{bullet}
+              <View style={styles.todaySummaryCard}>
+                <Text style={styles.todaySummaryBody}>
+                  {todaySummaryBullets.join(" ")}
                 </Text>
-              ))}
+              </View>
             </View>
           ) : isLoadingInsights ? (
             <WalkingLoader colors={colors} />
@@ -990,10 +990,11 @@ function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
     gap: 8,
   },
   tasksSectionTitle: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: "300",
-    letterSpacing: -0.5,
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
     marginTop: 8,
     marginBottom: 6,
   },
@@ -1055,20 +1056,28 @@ function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
     textAlign: "center",
     paddingVertical: 8,
   },
-  todaySummary: {
+  todaySummaryWrap: {
     marginHorizontal: 18,
-    gap: 8,
+    gap: 10,
   },
   todaySummaryTitle: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: "300",
-    letterSpacing: -0.5,
-  },
-  todaySummaryItem: {
     color: colors.muted,
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 13,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  todaySummaryCard: {
+    padding: 16,
+    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  todaySummaryBody: {
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 24,
   },
   modalContainer: {
     flex: 1,
