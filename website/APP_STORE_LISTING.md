@@ -1,7 +1,7 @@
 # App Store Listing
 
 ## App Name
-WalkLog
+WalkLogue
 
 ## Subtitle (30 chars max)
 Journal your walks with voice
@@ -19,12 +19,12 @@ journal,walking,voice,diary,steps,transcribe,mindfulness,reflection,health,AI
 
 Walk. Talk. Remember.
 
-WalkLog turns your daily walks into a journal. Hit record, lock your phone, and start walking. When you're done, your voice is transcribed into a written entry with your step count attached.
+WalkLogue turns your daily walks into a journal. Hit record, lock your phone, and start walking. When you're done, your voice is transcribed into a written entry with your step count attached.
 
 No typing. No staring at a blank page. Just talk.
 
 VOICE JOURNALING
-Record your thoughts while you walk. WalkLog uses OpenAI Whisper to transcribe your voice into clean text. Lock your screen and keep talking, it records in the background.
+Record your thoughts while you walk. WalkLogue uses OpenAI Whisper to transcribe your voice into clean text. Lock your screen and keep talking, it records in the background.
 
 STEP TRACKING
 Connect Apple Health or Fitbit. Your steps show up on the home screen and get saved with every walk entry.

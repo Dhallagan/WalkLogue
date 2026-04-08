@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy - WalkLog",
+  title: "Privacy Policy - WalkLogue",
 };
 
 export default function PrivacyPolicy() {
@@ -14,7 +14,7 @@ export default function PrivacyPolicy() {
       }}
     >
       <a href="/" style={{ color: "#8E8982", fontSize: 14, textDecoration: "none" }}>
-        WalkLog
+        WalkLogue
       </a>
       <h1
         style={{
@@ -31,9 +31,9 @@ export default function PrivacyPolicy() {
         Last updated: March 31, 2026
       </p>
 
-      <Section title="What WalkLog Does">
+      <Section title="What WalkLogue Does">
         <p>
-          WalkLog is a personal journaling app for iOS. You record voice
+          WalkLogue is a personal journaling app for iOS. You record voice
           entries during walks, and the app transcribes them into written
           journal entries. You can also write entries manually, track steps,
           and ask questions about your journal using AI.
@@ -57,7 +57,7 @@ export default function PrivacyPolicy() {
 
       <Section title="Data Sent to Third Parties">
         <p>
-          WalkLog uses OpenAI APIs for three features. When you use these
+          WalkLogue uses OpenAI APIs for three features. When you use these
           features, data is sent to OpenAI:
         </p>
         <ul>
@@ -93,16 +93,16 @@ export default function PrivacyPolicy() {
 
       <Section title="Apple Health">
         <p>
-          If you grant permission, WalkLog reads your step count from Apple
+          If you grant permission, WalkLogue reads your step count from Apple
           Health to display on the home screen and attach to walk entries.
-          Step data is read only. WalkLog does not write to Apple Health
+          Step data is read only. WalkLogue does not write to Apple Health
           except for step-related journal metadata.
         </p>
       </Section>
 
       <Section title="Fitbit">
         <p>
-          If you connect your Fitbit account, WalkLog reads your daily step
+          If you connect your Fitbit account, WalkLogue reads your daily step
           count via the Fitbit Web API using OAuth 2.0 with PKCE. Your
           Fitbit access token is stored locally in Expo SecureStore. We do
           not store your Fitbit credentials on any server.
@@ -111,11 +111,11 @@ export default function PrivacyPolicy() {
 
       <Section title="No Accounts, No Tracking">
         <ul>
-          <li>WalkLog does not require an account or login</li>
-          <li>WalkLog does not use analytics or tracking SDKs</li>
-          <li>WalkLog does not collect device identifiers</li>
-          <li>WalkLog does not show ads</li>
-          <li>WalkLog does not sell or share personal data</li>
+          <li>WalkLogue does not require an account or login</li>
+          <li>WalkLogue does not use analytics or tracking SDKs</li>
+          <li>WalkLogue does not collect device identifiers</li>
+          <li>WalkLogue does not show ads</li>
+          <li>WalkLogue does not sell or share personal data</li>
         </ul>
       </Section>
 
@@ -129,7 +129,7 @@ export default function PrivacyPolicy() {
 
       <Section title="Children">
         <p>
-          WalkLog is not directed at children under 13. We do not knowingly
+          WalkLogue is not directed at children under 13. We do not knowingly
           collect data from children.
         </p>
       </Section>

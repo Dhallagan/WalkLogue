@@ -173,7 +173,7 @@ export default function SettingsScreen() {
       if (!sharingAvailable) {
         Alert.alert(
           "Export Unavailable",
-          "Sharing is not available in this environment, so WalkLog could not open the export sheet.",
+          "Sharing is not available in this environment, so WalkLogue could not open the export sheet.",
         );
         return;
       }
@@ -257,7 +257,7 @@ export default function SettingsScreen() {
         updatedCount > 0 ? "Titles Updated" : "No Titles Generated",
         updatedCount > 0
           ? `Updated ${updatedCount} ${updatedCount === 1 ? "entry" : "entries"} and added ${emojiCount} ${emojiCount === 1 ? "emoji" : "emojis"}.`
-          : "WalkLog could not generate any new titles this time.",
+          : "WalkLogue could not generate any new titles this time.",
       );
     } catch (error) {
       const message =
@@ -369,7 +369,7 @@ export default function SettingsScreen() {
       </View>
 
       <Text style={styles.versionText}>
-        WalkLog {Constants.expoConfig?.version ?? "1.0.0"}
+        WalkLogue {Constants.expoConfig?.version ?? "1.0.0"}
       </Text>
     </Screen>
   );

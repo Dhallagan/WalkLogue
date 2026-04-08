@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "WalkLog - Journal Your Walks",
+  title: "WalkLogue - Journal Your Walks",
   description:
-    "Record your voice while you walk. WalkLog transcribes your thoughts into journal entries, tracks your steps, and lets you search your memories with AI.",
+    "Record your voice while you walk. WalkLogue transcribes your thoughts into journal entries, tracks your steps, and lets you search your memories with AI.",
   openGraph: {
-    title: "WalkLog",
+    title: "WalkLogue",
     description: "Journal your walks. Remember your days.",
     type: "website",
   },

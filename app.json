@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "WalkLog",
+    "name": "WalkLogue",
     "slug": "WalkLog",
     "scheme": "walklog",
     "version": "1.0.0",
@@ -17,8 +17,8 @@
       "appleTeamId": "XV3J6JJDVE",
       "bundleIdentifier": "com.dylan.walklog",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "WalkLog uses the microphone to record your spoken journal entries during a walk.",
-        "NSHealthUpdateUsageDescription": "WalkLog saves step-related journal data to Apple Health when needed to support your walk entries.",
+        "NSMicrophoneUsageDescription": "WalkLogue uses the microphone to record your spoken journal entries during a walk.",
+        "NSHealthUpdateUsageDescription": "WalkLogue saves step-related journal data to Apple Health when needed to support your walk entries.",
         "UIBackgroundModes": [
           "audio"
         ],
@@ -48,8 +48,8 @@
         "@kingstinct/react-native-healthkit",
         {
           "background": false,
-          "NSHealthShareUsageDescription": "WalkLog reads your step count from Apple Health so each walk entry includes steps.",
-          "NSHealthUpdateUsageDescription": "WalkLog saves step-related journal data to Apple Health when needed to support your walk entries."
+          "NSHealthShareUsageDescription": "WalkLogue reads your step count from Apple Health so each walk entry includes steps.",
+          "NSHealthUpdateUsageDescription": "WalkLogue saves step-related journal data to Apple Health when needed to support your walk entries."
         }
       ],
       "expo-secure-store",

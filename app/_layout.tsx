@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Stack } from "expo-router";
+import { Stack, router, useRootNavigationState } from "expo-router";
 import { SQLiteProvider } from "expo-sqlite";
 import { StatusBar } from "expo-status-bar";
 import * as SecureStore from "expo-secure-store";
@@ -11,6 +11,7 @@ import {
   useResolvedTheme,
   type ThemeMode,
 } from "../src/theme";
+import { ONBOARDING_KEY } from "./onboarding";
 
 const THEME_KEY = "walklog-theme-mode";
 
@@ -29,6 +30,24 @@ export default function RootLayout() {
       }
     });
   }, []);
+
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const navState = useRootNavigationState();
+
+  useEffect(() => {
+    void SecureStore.getItemAsync(ONBOARDING_KEY).then((stored) => {
+      setNeedsOnboarding(stored !== "true");
+      setOnboardingChecked(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!onboardingChecked || !navState?.key) return;
+    if (needsOnboarding) {
+      router.replace("/onboarding");
+    }
+  }, [onboardingChecked, needsOnboarding, navState?.key]);
 
   const handleSetMode = useCallback((mode: ThemeMode) => {
     setThemeMode(mode);
@@ -69,6 +88,10 @@ export default function RootLayout() {
           <Stack.Screen name="profile" options={{ title: "Profile" }} />
           <Stack.Screen name="tasks" options={{ title: "Tasks" }} />
           <Stack.Screen name="settings" options={{ title: "Settings" }} />
+          <Stack.Screen
+            name="onboarding"
+            options={{ headerShown: false, gestureEnabled: false }}
+          />
         </Stack>
       </SQLiteProvider>
     </ThemeContext.Provider>

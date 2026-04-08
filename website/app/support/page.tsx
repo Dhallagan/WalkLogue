@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Support - WalkLog",
+  title: "Support - WalkLogue",
 };
 
 export default function Support() {
@@ -14,7 +14,7 @@ export default function Support() {
       }}
     >
       <a href="/" style={{ color: "#8E8982", fontSize: 14, textDecoration: "none" }}>
-        WalkLog
+        WalkLogue
       </a>
       <h1
         style={{
@@ -70,7 +70,7 @@ export default function Support() {
           <p style={{ marginTop: 16 }}>
             <strong>Why does it need microphone access?</strong>
             <br />
-            WalkLog records your voice during walks and transcribes it into
+            WalkLogue records your voice during walks and transcribes it into
             journal entries. The microphone is only active while you're
             recording a walk.
           </p>

@@ -1,8 +1,8 @@
-# WalkLog Agent Guide
+# WalkLogue Agent Guide
 
 ## Product context
 
-WalkLog is an Expo Router iPhone app for spoken walking journals. The core loop is:
+WalkLogue is an Expo Router iPhone app for spoken walking journals. The core loop is:
 
 1. Start a walk
 2. Record audio while walking

@@ -1,6 +1,6 @@
-# WalkLog Design System
+# WalkLogue Design System
 
-WalkLog should feel like a quiet field notebook, not a generic utility app.
+WalkLogue should feel like a quiet field notebook, not a generic utility app.
 The product is small, so the interface has to do two jobs at once:
 
 1. Make recording a walk feel calm and intentional.
@@ -45,7 +45,7 @@ If two items belong to the same mental model, keep them in the same panel and se
 
 ## Tokens
 
-Source of truth lives in [src/theme.ts](/Users/dylan/Development/WalkLog/src/theme.ts).
+Source of truth lives in [src/theme.ts](/Users/dylan/Development/WalkLogue/src/theme.ts).
 
 - `colors`: warm paper palette plus semantic ink and status colors
 - `spacing`: base rhythm for gaps and padding
@@ -55,8 +55,8 @@ Source of truth lives in [src/theme.ts](/Users/dylan/Development/WalkLog/src/the
 
 ## Shared Primitives
 
-Shared layout and utility components live in [src/components/ui.tsx](/Users/dylan/Development/WalkLog/src/components/ui.tsx).
-Notebook-specific surfaces live in [src/components/notebook.tsx](/Users/dylan/Development/WalkLog/src/components/notebook.tsx).
+Shared layout and utility components live in [src/components/ui.tsx](/Users/dylan/Development/WalkLogue/src/components/ui.tsx).
+Notebook-specific surfaces live in [src/components/notebook.tsx](/Users/dylan/Development/WalkLogue/src/components/notebook.tsx).
 
 Use these primitives by default:
 

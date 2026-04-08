@@ -1,6 +1,6 @@
-# WalkLog
+# WalkLogue
 
-WalkLog is an Expo Router iPhone app for spoken walking journals. The current
+WalkLogue is an Expo Router iPhone app for spoken walking journals. The current
 product scope is intentionally narrow:
 
 - Start a walk

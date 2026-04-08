@@ -39,7 +39,7 @@ export default function Home() {
             color: "#4F4A44",
           }}
         >
-          WalkLog
+          WalkLogue
         </h1>
 
         <p
@@ -207,7 +207,7 @@ export default function Home() {
           </a>
         </nav>
         <p style={{ fontSize: 13, color: "#8E8982", margin: 0 }}>
-          &copy; {new Date().getFullYear()} WalkLog
+          &copy; {new Date().getFullYear()} WalkLogue
         </p>
       </footer>
     </>
