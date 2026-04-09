@@ -1,4 +1,5 @@
-const OPENAI_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions";
+import { getApiBaseUrl, getApiSecret } from "../../lib/api";
+
 const OPENAI_TRANSCRIPTION_MODEL = "whisper-1";
 
 type OpenAITranscriptionResponse = {
@@ -6,12 +7,6 @@ type OpenAITranscriptionResponse = {
 };
 
 export async function transcribeAudioFile(audioUri: string, signal?: AbortSignal) {
-  const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("Missing EXPO_PUBLIC_OPENAI_API_KEY.");
-  }
-
   const formData = new FormData();
   formData.append("model", OPENAI_TRANSCRIPTION_MODEL);
   formData.append("file", {
@@ -20,10 +15,10 @@ export async function transcribeAudioFile(audioUri: string, signal?: AbortSignal
     type: guessMimeType(audioUri),
   } as unknown as Blob);
 
-  const response = await fetch(OPENAI_TRANSCRIPTION_URL, {
+  const response = await fetch(`${getApiBaseUrl()}/api/transcribe`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${getApiSecret()}`,
       Accept: "application/json",
     },
     signal,

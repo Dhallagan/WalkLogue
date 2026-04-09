@@ -53,12 +53,12 @@ export function useWalkCapture() {
       return;
     }
 
-    if (!process.env.EXPO_PUBLIC_OPENAI_API_KEY) {
+    if (!process.env.EXPO_PUBLIC_API_SECRET) {
       clearElapsedTimer();
       setIsRecording(false);
       startedAtRef.current = null;
       setStartedAt(null);
-      throw new Error("Missing EXPO_PUBLIC_OPENAI_API_KEY for OpenAI transcription.");
+      throw new Error("Missing EXPO_PUBLIC_API_SECRET for transcription.");
     }
 
     const permission = await Audio.requestPermissionsAsync();

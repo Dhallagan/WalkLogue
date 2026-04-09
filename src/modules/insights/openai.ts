@@ -8,7 +8,9 @@ import {
 } from "./analysis";
 import { buildInsightAnswerChain } from "./chain";
 
-const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+import { getApiBaseUrl, getApiSecret, hasApiConfig } from "../../lib/api";
+
+const OPENAI_RESPONSES_PATH = "/api/respond";
 const DEFAULT_INSIGHTS_MODEL = "gpt-5-mini";
 const MAX_CONTEXT_ENTRIES = 8;
 const reflectionCache = new Map<string, string>();
@@ -807,18 +809,12 @@ export function peekCachedDailyHomeCards(entries: EntryListItem[]) {
 }
 
 export function hasInsightsConfig() {
-  return Boolean(process.env.EXPO_PUBLIC_OPENAI_API_KEY);
+  return hasApiConfig();
 }
 
 function getInsightsConfig() {
-  const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("Missing EXPO_PUBLIC_OPENAI_API_KEY for Insights.");
-  }
-
   return {
-    apiKey,
+    apiKey: "",
     model: process.env.EXPO_PUBLIC_OPENAI_INSIGHTS_MODEL ?? DEFAULT_INSIGHTS_MODEL,
   };
 }
@@ -834,10 +830,10 @@ async function createInsightsResponse({
   instructions: string;
   input: string;
 }) {
-  const response = await fetch(OPENAI_RESPONSES_URL, {
+  const response = await fetch(`${getApiBaseUrl()}${OPENAI_RESPONSES_PATH}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${getApiSecret()}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
