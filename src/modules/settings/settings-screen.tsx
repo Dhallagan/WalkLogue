@@ -7,6 +7,7 @@ import * as Sharing from "expo-sharing";
 import { useSQLiteContext } from "expo-sqlite";
 
 import { Screen } from "../../components/ui";
+import { checkApiHealth } from "../../lib/api";
 import { useTheme, useThemeColors, type ThemeMode } from "../../theme";
 
 type ColorTokens = ReturnType<typeof useTheme>["colors"];
@@ -79,6 +80,7 @@ export default function SettingsScreen() {
   const [fitbitSyncMessage, setFitbitSyncMessage] = useState<string | null>(null);
   const [isExportingJournal, setIsExportingJournal] = useState(false);
   const [isGeneratingTitles, setIsGeneratingTitles] = useState(false);
+  const [apiHealth, setApiHealth] = useState<"checking" | "ok" | "down">("checking");
   const hasOpenAIKey = Boolean(process.env.EXPO_PUBLIC_OPENAI_API_KEY);
   const fitbitConfigured = isFitbitStepSourceConfigured();
 
@@ -118,6 +120,8 @@ export default function SettingsScreen() {
   useFocusEffect(
     useCallback(() => {
       void loadPermissionState();
+      setApiHealth("checking");
+      void checkApiHealth().then((ok) => setApiHealth(ok ? "ok" : "down"));
     }, [loadPermissionState]),
   );
 
@@ -354,6 +358,17 @@ export default function SettingsScreen() {
 
       <View style={styles.group}>
         <View style={styles.groupCard}>
+          <SettingRow
+            label="Service status"
+            value={
+              apiHealth === "checking"
+                ? "Checking..."
+                : apiHealth === "ok"
+                ? "All systems go"
+                : "Unreachable"
+            }
+          />
+          <View style={styles.separator} />
           <SettingRow
             label="Privacy Policy"
             onPress={() => void Linking.openURL("https://walklog-site.vercel.app/privacy")}

@@ -9,6 +9,7 @@ import {
 import { buildInsightAnswerChain } from "./chain";
 
 import { getApiBaseUrl, getApiSecret, hasApiConfig } from "../../lib/api";
+import { showToast } from "../../components/toast";
 
 const OPENAI_RESPONSES_PATH = "/api/respond";
 const DEFAULT_INSIGHTS_MODEL = "gpt-5-mini";
@@ -830,29 +831,40 @@ async function createInsightsResponse({
   instructions: string;
   input: string;
 }) {
-  const response = await fetch(`${getApiBaseUrl()}${OPENAI_RESPONSES_PATH}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getApiSecret()}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      reasoning: {
-        effort: "low",
+  let response: Response;
+  try {
+    response = await fetch(`${getApiBaseUrl()}${OPENAI_RESPONSES_PATH}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${getApiSecret()}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
       },
-      instructions,
-      input,
-    }),
-  });
+      body: JSON.stringify({
+        model,
+        reasoning: {
+          effort: "low",
+        },
+        instructions,
+        input,
+      }),
+    });
+  } catch (networkError) {
+    showToast("Can't reach the network. Try again in a moment.");
+    throw networkError;
+  }
 
   const payload = (await response.json()) as OpenAIResponsesResponse;
 
   if (!response.ok) {
     const requestId = response.headers.get("x-request-id");
     const requestSuffix = requestId ? ` [request ${requestId}]` : "";
-    const message = payload.error?.message ?? "OpenAI request failed.";
+    const message = payload.error?.message ?? "AI request failed.";
+    showToast(
+      response.status >= 500
+        ? "AI service is having a moment. Try again soon."
+        : "Something went wrong with the AI request.",
+    );
     throw new Error(`${message}${requestSuffix}`);
   }
 

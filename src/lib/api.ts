@@ -15,3 +15,14 @@ export function getApiSecret(): string {
 export function hasApiConfig(): boolean {
   return Boolean(process.env.EXPO_PUBLIC_API_SECRET);
 }
+
+export async function checkApiHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/health`, {
+      method: "GET",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

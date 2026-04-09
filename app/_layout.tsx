@@ -5,6 +5,8 @@ import { StatusBar } from "expo-status-bar";
 import * as SecureStore from "expo-secure-store";
 
 import { initializeDatabase } from "../src/modules/journal/repository";
+import { ToastHost, showToast } from "../src/components/toast";
+import { checkApiHealth } from "../src/lib/api";
 import {
   ThemeContext,
   setActiveTheme,
@@ -27,6 +29,14 @@ export default function RootLayout() {
     void SecureStore.getItemAsync(THEME_KEY).then((stored) => {
       if (stored === "light" || stored === "dark" || stored === "system") {
         setThemeMode(stored);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    void checkApiHealth().then((ok) => {
+      if (!ok) {
+        showToast("Service is unreachable. Some features may not work.");
       }
     });
   }, []);
@@ -93,6 +103,7 @@ export default function RootLayout() {
             options={{ headerShown: false, gestureEnabled: false }}
           />
         </Stack>
+        <ToastHost />
       </SQLiteProvider>
     </ThemeContext.Provider>
   );
