@@ -7,7 +7,12 @@ import * as Sharing from "expo-sharing";
 import { useSQLiteContext } from "expo-sqlite";
 
 import { Screen } from "../../components/ui";
-import { checkApiHealth } from "../../lib/api";
+import { checkApiHealth, hasApiConfig } from "../../lib/api";
+import {
+  getNotificationPermissionStatus,
+  requestNotificationPermission,
+  type NotificationPermissionStatus,
+} from "../notifications/scheduler";
 import { useTheme, useThemeColors, type ThemeMode } from "../../theme";
 
 type ColorTokens = ReturnType<typeof useTheme>["colors"];
@@ -81,7 +86,7 @@ export default function SettingsScreen() {
   const [isExportingJournal, setIsExportingJournal] = useState(false);
   const [isGeneratingTitles, setIsGeneratingTitles] = useState(false);
   const [apiHealth, setApiHealth] = useState<"checking" | "ok" | "down">("checking");
-  const hasOpenAIKey = Boolean(process.env.EXPO_PUBLIC_OPENAI_API_KEY);
+  const [notifStatus, setNotifStatus] = useState<NotificationPermissionStatus>("undetermined");
   const fitbitConfigured = isFitbitStepSourceConfigured();
 
   const loadPermissionState = useCallback(async () => {
@@ -122,6 +127,7 @@ export default function SettingsScreen() {
       void loadPermissionState();
       setApiHealth("checking");
       void checkApiHealth().then((ok) => setApiHealth(ok ? "ok" : "down"));
+      void getNotificationPermissionStatus().then(setNotifStatus);
     }, [loadPermissionState]),
   );
 
@@ -209,10 +215,10 @@ export default function SettingsScreen() {
       return;
     }
 
-    if (!hasOpenAIKey) {
+    if (!hasApiConfig()) {
       Alert.alert(
         "OpenAI Key Missing",
-        "Set EXPO_PUBLIC_OPENAI_API_KEY before generating AI titles.",
+        "API not configured. Check your settings.",
       );
       return;
     }
@@ -327,8 +333,35 @@ export default function SettingsScreen() {
           />
           <View style={styles.separator} />
           <SettingRow
-            label="Whisper"
-            value={hasOpenAIKey ? "Ready" : "Missing"}
+            label="Transcription"
+            value={apiHealth === "ok" ? "Ready" : apiHealth === "checking" ? "Checking..." : "Unavailable"}
+          />
+        </View>
+      </View>
+
+      <View style={styles.group}>
+        <Text style={styles.groupHeader}>Notifications</Text>
+        <View style={styles.groupCard}>
+          <SettingRow
+            label="Daily reminders"
+            value={
+              notifStatus === "granted"
+                ? "On"
+                : notifStatus === "denied"
+                ? "Denied"
+                : "Off"
+            }
+            onPress={
+              notifStatus === "undetermined"
+                ? async () => {
+                    await requestNotificationPermission();
+                    setNotifStatus(await getNotificationPermissionStatus());
+                  }
+                : notifStatus === "denied"
+                ? () => void openAppSettings()
+                : undefined
+            }
+            chevron={notifStatus !== "granted"}
           />
         </View>
       </View>

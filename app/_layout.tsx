@@ -34,11 +34,15 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    void checkApiHealth().then((ok) => {
-      if (!ok) {
-        showToast("Service is unreachable. Some features may not work.");
-      }
-    });
+    // Delay health check so network has time to initialize on cold launch
+    const timer = setTimeout(() => {
+      void checkApiHealth().then((ok) => {
+        if (!ok) {
+          showToast("Service is unreachable. Some features may not work.");
+        }
+      });
+    }, 5000);
+    return () => clearTimeout(timer);
   }, []);
 
   const [onboardingChecked, setOnboardingChecked] = useState(false);
