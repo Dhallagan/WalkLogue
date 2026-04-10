@@ -1,10 +1,11 @@
 import { useMemo } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 
 import { useTheme, useThemeColors } from "../../theme";
 import { STAGE_LABELS, type BuddyState } from "./state";
 import { SPRITES } from "./sprites";
 import { PixelSprite } from "./pixel-sprite";
+import { PixelHealthBar } from "./pixel-heart";
 
 export function BuddyView({ buddy }: { buddy: BuddyState }) {
   const { colors } = useThemeColors();
@@ -16,56 +17,52 @@ export function BuddyView({ buddy }: { buddy: BuddyState }) {
 
   return (
     <View style={styles.container}>
+      {/* Health row */}
+      <View style={styles.healthRow}>
+        <Text style={styles.label}>HP</Text>
+        <PixelHealthBar
+          health={buddy.health}
+          pixelSize={3}
+          color={buddy.health > 25 ? "#C2654A" : "#8B3A2A"}
+          emptyColor={colors.border}
+        />
+      </View>
+
+      {/* Sprite */}
       <View style={styles.spriteContainer}>
         <PixelSprite grid={sprite} size={140} dead={isDead} />
       </View>
 
+      {/* Speech */}
       {buddy.speech ? (
-        <View style={styles.speechBubble}>
-          <Text style={styles.speechText}>{buddy.speech}</Text>
-        </View>
+        <Text style={styles.speech}>&quot;{buddy.speech}&quot;</Text>
       ) : null}
 
-      <View style={styles.barsContainer}>
-        <BarRow label="Steps" value={buddy.stepsBar} color="#7BAE6E" colors={colors} />
-        <BarRow label="Journal" value={buddy.journalBar} color="#6B9BD2" colors={colors} />
-        <BarRow label="Tasks" value={buddy.tasksBar} color="#D4A057" colors={colors} />
+      {/* Stats row */}
+      <View style={styles.statsRow}>
+        <View style={styles.stat}>
+          <Text style={styles.statIcon}>{">"}</Text>
+          <Text style={styles.statLabel}>STEPS</Text>
+          <Text style={styles.statValue}>
+            {buddy.stepsBar >= 100 ? "OK" : `${buddy.stepsBar}%`}
+          </Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.stat}>
+          <Text style={styles.statIcon}>{">"}</Text>
+          <Text style={styles.statLabel}>JOURNAL</Text>
+          <Text style={styles.statValue}>
+            {buddy.journalBar >= 100 ? "OK" : "--"}
+          </Text>
+        </View>
       </View>
 
-      <Text style={styles.meta}>
+      {/* Footer */}
+      <Text style={styles.footer}>
         {isDead
-          ? "Your buddy faded away. Tap Reset in Settings to start over."
-          : `Day ${buddy.streak} · ${stageLabel}`}
+          ? "GAME OVER - RESET IN SETTINGS"
+          : `DAY ${buddy.streak}  ·  ${stageLabel.toUpperCase()}`}
       </Text>
-    </View>
-  );
-}
-
-function BarRow({
-  label,
-  value,
-  color,
-  colors,
-}: {
-  label: string;
-  value: number;
-  color: string;
-  colors: ReturnType<typeof useTheme>["colors"];
-}) {
-  return (
-    <View style={barStyles.row}>
-      <Text style={[barStyles.label, { color: colors.muted }]}>{label}</Text>
-      <View style={[barStyles.track, { backgroundColor: colors.surface }]}>
-        <View
-          style={[
-            barStyles.fill,
-            {
-              backgroundColor: color,
-              width: `${Math.min(100, Math.max(0, value))}%`,
-            },
-          ]}
-        />
-      </View>
     </View>
   );
 }
@@ -73,66 +70,88 @@ function BarRow({
 type ColorTokens = ReturnType<typeof useTheme>["colors"];
 
 function createStyles(colors: ColorTokens) {
+  const mono = Platform.select({
+    ios: "Courier",
+    android: "monospace",
+    default: "monospace",
+  });
+
   return StyleSheet.create({
     container: {
       marginHorizontal: 18,
-      padding: 20,
+      padding: 16,
       borderRadius: 14,
       backgroundColor: colors.surface,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       alignItems: "center",
-      gap: 16,
+      gap: 12,
+    },
+    healthRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      alignSelf: "stretch",
+    },
+    label: {
+      fontFamily: mono,
+      fontSize: 11,
+      fontWeight: "700",
+      color: colors.muted,
+      letterSpacing: 1,
     },
     spriteContainer: {
-      paddingVertical: 8,
+      paddingVertical: 4,
     },
-    speechBubble: {
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      borderRadius: 12,
-      backgroundColor: colors.background,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      maxWidth: "80%",
-    },
-    speechText: {
+    speech: {
+      fontFamily: mono,
+      fontSize: 13,
       color: colors.text,
-      fontSize: 14,
-      fontStyle: "italic",
       textAlign: "center",
+      lineHeight: 18,
     },
-    barsContainer: {
+    statsRow: {
+      flexDirection: "row",
+      alignItems: "center",
       alignSelf: "stretch",
-      gap: 8,
+      gap: 12,
     },
-    meta: {
+    stat: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    statDivider: {
+      width: StyleSheet.hairlineWidth,
+      height: 14,
+      backgroundColor: colors.border,
+    },
+    statIcon: {
+      fontFamily: mono,
+      fontSize: 10,
       color: colors.muted,
-      fontSize: 12,
-      letterSpacing: 0.3,
+    },
+    statLabel: {
+      fontFamily: mono,
+      fontSize: 10,
+      fontWeight: "600",
+      color: colors.muted,
+      letterSpacing: 0.5,
+    },
+    statValue: {
+      fontFamily: mono,
+      fontSize: 10,
+      fontWeight: "700",
+      color: colors.text,
+      marginLeft: "auto",
+    },
+    footer: {
+      fontFamily: mono,
+      fontSize: 10,
+      color: colors.muted,
+      letterSpacing: 1.5,
+      textAlign: "center",
     },
   });
 }
-
-const barStyles = StyleSheet.create({
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  label: {
-    width: 52,
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  track: {
-    flex: 1,
-    height: 6,
-    borderRadius: 3,
-    overflow: "hidden",
-  },
-  fill: {
-    height: "100%",
-    borderRadius: 3,
-  },
-});

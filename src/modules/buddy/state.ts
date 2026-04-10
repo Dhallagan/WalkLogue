@@ -59,7 +59,7 @@ export function computeBuddyState(
   prev: BuddyState,
   todaySteps: number,
   journaledToday: boolean,
-  tasksCompletedToday: number,
+  _tasksCompletedToday?: number,
 ): BuddyState {
   const today = todayKey();
   const isNewDay = prev.lastFedDate !== today;
@@ -87,9 +87,9 @@ export function computeBuddyState(
 
   const stepsBar = Math.min(100, Math.round((todaySteps / STEP_GOAL) * 100));
   const journalBar = journaledToday ? 100 : 0;
-  const tasksBar = tasksCompletedToday > 0 ? 100 : 0;
+  const tasksBar = 0;
 
-  health = Math.round((stepsBar + journalBar + tasksBar) / 3);
+  health = Math.round((stepsBar + journalBar) / 2);
 
   const stage = computeStage(streak);
   const mood = computeMood(health, stepsBar, journalBar, missedDays);
