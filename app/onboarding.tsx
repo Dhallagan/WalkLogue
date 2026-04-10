@@ -145,7 +145,7 @@ export default function OnboardingScreen() {
                 disabled={busy}
                 style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
               >
-                <Text style={styles.primaryText}>Allow microphone</Text>
+                <Text style={styles.primaryText}>Continue</Text>
               </Pressable>
               <Pressable onPress={() => setStep("health")} style={styles.skip}>
                 <Text style={styles.skipText}>Not now</Text>
