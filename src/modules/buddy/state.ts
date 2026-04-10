@@ -177,29 +177,7 @@ export const STAGE_LABELS: Record<BuddyKind, string[]> = {
   plant: ["Seed", "Sprout", "Bud", "Bloom", "Full Bloom"],
 };
 
-export const STAGE_ART: Record<BuddyKind, string[]> = {
-  explorer: [
-    "  (o)  ",         // egg
-    " \\(o.o)/\n  | \n / \\ ",   // sprout - little figure
-    " 🎒\n (o.o)\n  /|\\\n  / \\ ",  // explorer
-    " 🎩\n (o.o)\n  /|\\\n  / \\ ",  // ranger
-    " ⛳\n (O.O)\n  /|\\\n  / \\ ",  // legend
-  ],
-  oak: [
-    "  🌰  ",         // acorn
-    "  🌱  ",         // sprout
-    "  🌿\n  |\n  |  ",  // sapling
-    "  🌳  ",         // tree
-    " 🌳🌳\n 🌳🌳🌳",   // mighty oak
-  ],
-  plant: [
-    "  · \n [___] ",      // seed in pot
-    "  🌱 \n [___] ",     // sprout
-    " 🌿🌿\n [___] ",    // bud
-    " 🌸🌿\n [___] ",    // bloom
-    "🌺🌸🌿\n [___] ",   // full bloom
-  ],
-};
+// Pixel art sprites are in sprites.ts
 
 export const KIND_LABELS: Record<BuddyKind, string> = {
   explorer: "Explorer",

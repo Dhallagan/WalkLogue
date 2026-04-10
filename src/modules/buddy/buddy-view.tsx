@@ -2,24 +2,22 @@ import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { useTheme, useThemeColors } from "../../theme";
-import {
-  STAGE_ART,
-  STAGE_LABELS,
-  type BuddyState,
-} from "./state";
+import { STAGE_LABELS, type BuddyState } from "./state";
+import { SPRITES } from "./sprites";
+import { PixelSprite } from "./pixel-sprite";
 
 export function BuddyView({ buddy }: { buddy: BuddyState }) {
   const { colors } = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const art = STAGE_ART[buddy.kind][buddy.stage];
+  const sprite = SPRITES[buddy.kind][buddy.stage];
   const stageLabel = STAGE_LABELS[buddy.kind][buddy.stage];
   const isDead = buddy.mood === "dead";
 
   return (
     <View style={styles.container}>
-      <View style={[styles.artContainer, isDead && styles.artDead]}>
-        <Text style={styles.art}>{art}</Text>
+      <View style={styles.spriteContainer}>
+        <PixelSprite grid={sprite} size={140} dead={isDead} />
       </View>
 
       {buddy.speech ? (
@@ -86,16 +84,8 @@ function createStyles(colors: ColorTokens) {
       alignItems: "center",
       gap: 16,
     },
-    artContainer: {
-      paddingVertical: 12,
-    },
-    artDead: {
-      opacity: 0.25,
-    },
-    art: {
-      fontSize: 32,
-      textAlign: "center",
-      lineHeight: 40,
+    spriteContainer: {
+      paddingVertical: 8,
     },
     speechBubble: {
       paddingHorizontal: 14,
