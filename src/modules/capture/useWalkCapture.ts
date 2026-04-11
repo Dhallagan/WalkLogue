@@ -154,6 +154,7 @@ export function useWalkCapture() {
           startedAt: sessionStart,
           endedAt,
           durationSec: calculateDurationSec(sessionStart, endedAt),
+          audioUri: permanentPath,
         };
       } catch (transcriptionError) {
         // Transcription failed but audio is saved. Return empty transcript
