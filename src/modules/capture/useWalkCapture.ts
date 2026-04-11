@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Constants from "expo-constants";
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from "expo-av";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 
 import { transcribeAudioFile } from "../transcription/openai";
 
