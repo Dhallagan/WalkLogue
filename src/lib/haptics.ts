@@ -1,26 +1,35 @@
 let Haptics: typeof import("expo-haptics") | null = null;
 try {
   Haptics = require("expo-haptics");
+  // Test if the native module is actually available
+  void Haptics!.impactAsync(Haptics!.ImpactFeedbackStyle.Light).catch(() => {
+    Haptics = null;
+  });
 } catch {
-  // Native module not available
+  Haptics = null;
+}
+
+function run(fn: () => void) {
+  if (!Haptics) return;
+  try { fn(); } catch { /* native module missing */ }
 }
 
 export function tapLight() {
-  void Haptics?.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  run(() => void Haptics!.impactAsync(Haptics!.ImpactFeedbackStyle.Light));
 }
 
 export function tapMedium() {
-  void Haptics?.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  run(() => void Haptics!.impactAsync(Haptics!.ImpactFeedbackStyle.Medium));
 }
 
 export function tapHeavy() {
-  void Haptics?.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+  run(() => void Haptics!.impactAsync(Haptics!.ImpactFeedbackStyle.Heavy));
 }
 
 export function success() {
-  void Haptics?.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  run(() => void Haptics!.notificationAsync(Haptics!.NotificationFeedbackType.Success));
 }
 
 export function warning() {
-  void Haptics?.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+  run(() => void Haptics!.notificationAsync(Haptics!.NotificationFeedbackType.Warning));
 }
