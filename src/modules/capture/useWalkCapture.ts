@@ -81,27 +81,8 @@ export function useWalkCapture() {
       playThroughEarpieceAndroid: false,
     });
 
-    // Low bitrate voice-optimized recording.
-    // Whisper transcribes speech fine at 32kbps.
-    // Keeps files under 4MB for ~15 min walks (Vercel body limit).
-    const voicePreset: Audio.RecordingOptions = {
-      ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-      ios: {
-        ...Audio.RecordingOptionsPresets.HIGH_QUALITY.ios,
-        bitRate: 32000,
-        numberOfChannels: 1,
-        sampleRate: 16000,
-      },
-      android: {
-        ...Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
-        bitRate: 32000,
-        numberOfChannels: 1,
-        sampleRate: 16000,
-      },
-    };
-
     const { recording } = await Audio.Recording.createAsync(
-      voicePreset,
+      Audio.RecordingOptionsPresets.HIGH_QUALITY,
       handleRecordingStatusUpdate,
       250,
     );
