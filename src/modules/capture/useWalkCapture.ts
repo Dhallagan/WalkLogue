@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Constants from "expo-constants";
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from "expo-av";
-import { File, Paths } from "expo-file-system";
+import * as FileSystem from "expo-file-system";
 
 import { transcribeAudioFile } from "../transcription/openai";
 
@@ -131,16 +131,13 @@ export function useWalkCapture() {
 
       // Save audio to permanent storage before attempting transcription
       const ext = audioUri.slice(audioUri.lastIndexOf(".")) || ".m4a";
-      const permanentDir = `${Paths.document}/recordings`;
-      const permanentPath = `${permanentDir}/${Date.now()}${ext}`;
-      try {
-        const dir = new File(permanentDir);
-        if (!(await dir.exists?.()) && Paths.document) {
-          await new File(Paths.document).mkdir("recordings");
-        }
-      } catch {}
-      const tempFile = new File(audioUri);
-      await tempFile.copy(new File(permanentPath));
+      const permanentDir = `${FileSystem.documentDirectory}recordings/`;
+      const permanentPath = `${permanentDir}${Date.now()}${ext}`;
+      const dirInfo = await FileSystem.getInfoAsync(permanentDir);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(permanentDir, { intermediates: true });
+      }
+      await FileSystem.copyAsync({ from: audioUri, to: permanentPath });
 
       const abortController = new AbortController();
       transcriptionAbortRef.current = abortController;
