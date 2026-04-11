@@ -391,6 +391,37 @@ export default function EntryDetailScreen() {
         </Text>
       </View>
 
+      {entry?.audioUri ? (
+        <View style={styles.audioSection}>
+          <AudioPlayer uri={entry.audioUri} />
+
+          {entry.transcriptionStatus !== "completed" ? (
+            <Pressable
+              onPress={async () => {
+                tapMedium();
+                try {
+                  showToast("Retrying transcription...", "info");
+                  const text = await transcribeAudioFile(entry.audioUri!);
+                  if (text.trim()) {
+                    await updateEntryTranscription(db, entry.id, text.trim());
+                    setBody(text.trim());
+                    showToast("Transcription complete!", "info");
+                    void loadEntry();
+                  } else {
+                    showToast("No speech detected in recording.");
+                  }
+                } catch {
+                  showToast("Transcription failed. Try again later.");
+                }
+              }}
+              style={({ pressed }) => [styles.retryButton, pressed && { opacity: 0.6 }]}
+            >
+              <Text style={styles.retryButtonText}>Retry Transcription</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
       <PaperSheet
         style={styles.sheet}
         contentStyle={styles.sheetContent}
@@ -481,36 +512,6 @@ export default function EntryDetailScreen() {
           </>
         )}
 
-        {entry?.audioUri ? (
-          <View style={styles.audioSection}>
-            <AudioPlayer uri={entry.audioUri} />
-
-            {entry.transcriptionStatus !== "completed" ? (
-              <Pressable
-                onPress={async () => {
-                  tapMedium();
-                  try {
-                    showToast("Retrying transcription...", "info");
-                    const text = await transcribeAudioFile(entry.audioUri!);
-                    if (text.trim()) {
-                      await updateEntryTranscription(db, entry.id, text.trim());
-                      setBody(text.trim());
-                      showToast("Transcription complete!", "info");
-                      void loadEntry();
-                    } else {
-                      showToast("No speech detected in recording.");
-                    }
-                  } catch {
-                    showToast("Transcription failed. Try again later.");
-                  }
-                }}
-                style={({ pressed }) => [styles.retryButton, pressed && { opacity: 0.6 }]}
-              >
-                <Text style={styles.retryButtonText}>Retry Transcription</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
       </PaperSheet>
     </Screen>
   );
@@ -660,10 +661,8 @@ function createStyles(colors: ColorTokens) {
     lineHeight: ENTRY_RULE_GAP,
   },
   audioSection: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+    marginHorizontal: 18,
+    marginBottom: 4,
     gap: 8,
   },
   retryButton: {
