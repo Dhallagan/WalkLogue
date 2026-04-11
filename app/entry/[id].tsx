@@ -42,9 +42,9 @@ import {
   updatePerson,
 } from "../../src/modules/journal/repository";
 import { transcribeAudioFile } from "../../src/modules/transcription/openai";
-import { Audio } from "expo-av";
 import { showToast } from "../../src/components/toast";
 import { tapMedium } from "../../src/lib/haptics";
+import { AudioPlayer } from "../../src/components/audio-player";
 import {
   extractPeopleFromEntry,
   extractTasksFromEntry,
@@ -482,28 +482,8 @@ export default function EntryDetailScreen() {
         )}
 
         {entry?.audioUri ? (
-          <View style={styles.audioActions}>
-            <Pressable
-              onPress={async () => {
-                tapMedium();
-                try {
-                  const { sound } = await Audio.Sound.createAsync(
-                    { uri: entry.audioUri! },
-                    { shouldPlay: true },
-                  );
-                  sound.setOnPlaybackStatusUpdate((status) => {
-                    if ("didJustFinish" in status && status.didJustFinish) {
-                      void sound.unloadAsync();
-                    }
-                  });
-                } catch {
-                  showToast("Couldn't play recording.");
-                }
-              }}
-              style={({ pressed }) => [styles.audioButton, pressed && { opacity: 0.6 }]}
-            >
-              <Text style={styles.audioButtonText}>Play Recording</Text>
-            </Pressable>
+          <View style={styles.audioSection}>
+            <AudioPlayer uri={entry.audioUri} />
 
             {entry.transcriptionStatus !== "completed" ? (
               <Pressable
@@ -524,9 +504,9 @@ export default function EntryDetailScreen() {
                     showToast("Transcription failed. Try again later.");
                   }
                 }}
-                style={({ pressed }) => [styles.audioButton, pressed && { opacity: 0.6 }]}
+                style={({ pressed }) => [styles.retryButton, pressed && { opacity: 0.6 }]}
               >
-                <Text style={styles.audioButtonText}>Retry Transcription</Text>
+                <Text style={styles.retryButtonText}>Retry Transcription</Text>
               </Pressable>
             ) : null}
           </View>
@@ -679,16 +659,14 @@ function createStyles(colors: ColorTokens) {
     fontSize: 15,
     lineHeight: ENTRY_RULE_GAP,
   },
-  audioActions: {
-    flexDirection: "row",
-    gap: 10,
+  audioSection: {
     marginTop: 16,
     paddingTop: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
+    gap: 8,
   },
-  audioButton: {
-    flex: 1,
+  retryButton: {
     paddingVertical: 10,
     borderRadius: 10,
     backgroundColor: colors.surface,
@@ -696,7 +674,7 @@ function createStyles(colors: ColorTokens) {
     borderColor: colors.border,
     alignItems: "center",
   },
-  audioButtonText: {
+  retryButtonText: {
     color: colors.text,
     fontSize: 14,
     fontWeight: "500",
