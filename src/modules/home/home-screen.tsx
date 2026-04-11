@@ -49,20 +49,16 @@ import {
   backfillMissingTitles,
   backfillPeople,
   generateDailyHomeCards,
-  generatePersonSummary,
   hasInsightsConfig,
   peekCachedDailyHomeCards,
   type DailyHomeCards,
 } from "../insights/openai";
 import {
-  getEntriesForPerson,
   getEntriesNeedingPeopleExtraction,
   getExistingPeopleContext,
   linkPeopleToEntry,
   listEntries,
-  listPeople,
   updateEntryTitle,
-  updatePerson,
   upsertDailySteps,
 } from "../journal/repository";
 import type { EntryListItem } from "../journal/types";
@@ -314,25 +310,6 @@ export default function HomeScreen({
         async (entryId, extracted) => {
           if (extracted.length > 0) {
             await linkPeopleToEntry(db, entryId, extracted);
-          }
-        },
-        async () => {
-          try {
-            const allPeople = await listPeople(db);
-            for (const person of allPeople) {
-              if (!person.summary) {
-                const entries = await getEntriesForPerson(db, person.id);
-                const result = await generatePersonSummary(person.name, person.aliases, entries);
-                if (result) {
-                  await updatePerson(db, person.id, {
-                    summary: result.summary,
-                    emoji: result.emoji,
-                  });
-                }
-              }
-            }
-          } catch (error) {
-            console.error("People summary generation failed", error);
           }
         },
       );
