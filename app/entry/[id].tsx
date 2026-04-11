@@ -38,8 +38,13 @@ import {
   updateEntry,
   updateEntryDate,
   updateEntryTitle,
+  updateEntryTranscription,
   updatePerson,
 } from "../../src/modules/journal/repository";
+import { transcribeAudioFile } from "../../src/modules/transcription/openai";
+import { Audio } from "expo-av";
+import { showToast } from "../../src/components/toast";
+import { tapMedium } from "../../src/lib/haptics";
 import {
   extractPeopleFromEntry,
   extractTasksFromEntry,
@@ -471,10 +476,61 @@ export default function EntryDetailScreen() {
               </Text>
             </View>
             <Text style={styles.bodyDisplay}>
-              {body || "No content yet."}
+              {body || (entry?.audioUri ? "Recording saved. Transcription pending." : "No content yet.")}
             </Text>
           </>
         )}
+
+        {entry?.audioUri ? (
+          <View style={styles.audioActions}>
+            <Pressable
+              onPress={async () => {
+                tapMedium();
+                try {
+                  const { sound } = await Audio.Sound.createAsync(
+                    { uri: entry.audioUri! },
+                    { shouldPlay: true },
+                  );
+                  sound.setOnPlaybackStatusUpdate((status) => {
+                    if ("didJustFinish" in status && status.didJustFinish) {
+                      void sound.unloadAsync();
+                    }
+                  });
+                } catch {
+                  showToast("Couldn't play recording.");
+                }
+              }}
+              style={({ pressed }) => [styles.audioButton, pressed && { opacity: 0.6 }]}
+            >
+              <Text style={styles.audioButtonText}>Play Recording</Text>
+            </Pressable>
+
+            {entry.transcriptionStatus !== "completed" ? (
+              <Pressable
+                onPress={async () => {
+                  tapMedium();
+                  try {
+                    showToast("Retrying transcription...", "info");
+                    const text = await transcribeAudioFile(entry.audioUri!);
+                    if (text.trim()) {
+                      await updateEntryTranscription(db, entry.id, text.trim());
+                      setBody(text.trim());
+                      showToast("Transcription complete!", "info");
+                      void loadEntry();
+                    } else {
+                      showToast("No speech detected in recording.");
+                    }
+                  } catch {
+                    showToast("Transcription failed. Try again later.");
+                  }
+                }}
+                style={({ pressed }) => [styles.audioButton, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={styles.audioButtonText}>Retry Transcription</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
       </PaperSheet>
     </Screen>
   );
@@ -622,6 +678,28 @@ function createStyles(colors: ColorTokens) {
     color: colors.text,
     fontSize: 15,
     lineHeight: ENTRY_RULE_GAP,
+  },
+  audioActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  audioButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    alignItems: "center",
+  },
+  audioButtonText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "500",
   },
 });
 }

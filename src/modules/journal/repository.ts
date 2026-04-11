@@ -30,6 +30,8 @@ type EntryRow = {
   ended_at: string | null;
   duration_sec: number | null;
   step_count: number | null;
+  audio_uri: string | null;
+  transcription_status: string | null;
 };
 
 let entriesVersion = 0;
@@ -123,6 +125,20 @@ export async function initializeDatabase(db: SQLiteDatabase) {
     await db.execAsync(`
       ALTER TABLE journal_entries
       ADD COLUMN tasks_extracted_at TEXT;
+    `);
+  }
+
+  if (!journalColumns.some((column) => column.name === "audio_uri")) {
+    await db.execAsync(`
+      ALTER TABLE journal_entries
+      ADD COLUMN audio_uri TEXT;
+    `);
+  }
+
+  if (!journalColumns.some((column) => column.name === "transcription_status")) {
+    await db.execAsync(`
+      ALTER TABLE journal_entries
+      ADD COLUMN transcription_status TEXT DEFAULT 'completed';
     `);
   }
 
@@ -289,6 +305,8 @@ export async function createWalkEntry(
     endedAt: Date;
     durationSec: number;
     stepCount: number;
+    audioUri?: string;
+    transcriptionStatus?: string;
   },
 ) {
   const entryId = createId("entry");
@@ -305,9 +323,11 @@ export async function createWalkEntry(
           title,
           title_emoji,
           body,
-          session_id
+          session_id,
+          audio_uri,
+          transcription_status
         )
-        VALUES (?, ?, 'walk', ?, ?, ?, ?)
+        VALUES (?, ?, 'walk', ?, ?, ?, ?, ?, ?)
       `,
       entryId,
       formatLocalISOString(createdAt),
@@ -315,6 +335,8 @@ export async function createWalkEntry(
       null,
       input.body.trim(),
       sessionId,
+      input.audioUri ?? null,
+      input.transcriptionStatus ?? "completed",
     );
 
     await db.runAsync(
@@ -387,6 +409,29 @@ export async function updateEntryDate(
     id,
   );
   bumpEntriesVersion();
+}
+
+export async function updateEntryTranscription(
+  db: SQLiteDatabase,
+  id: string,
+  body: string,
+) {
+  await db.runAsync(
+    `UPDATE journal_entries SET body = ?, transcription_status = 'completed' WHERE id = ?`,
+    body.trim(),
+    id,
+  );
+  bumpEntriesVersion();
+}
+
+export async function listPendingTranscriptions(
+  db: SQLiteDatabase,
+): Promise<Array<{ id: string; audioUri: string }>> {
+  return db.getAllAsync(
+    `SELECT id, audio_uri as audioUri FROM journal_entries
+     WHERE transcription_status IN ('pending', 'failed')
+       AND audio_uri IS NOT NULL`,
+  );
 }
 
 export async function deleteEntry(db: SQLiteDatabase, id: string) {
@@ -1011,5 +1056,7 @@ function mapEntryRow(row: EntryRow): EntryDetail {
     endedAt: row.ended_at ? new Date(row.ended_at) : undefined,
     durationSec: row.duration_sec ?? undefined,
     stepCount: row.step_count ?? undefined,
+    audioUri: row.audio_uri ?? undefined,
+    transcriptionStatus: (row.transcription_status as "completed" | "pending" | "failed") ?? "completed",
   };
 }

@@ -1,3 +1,5 @@
+export type TranscriptionStatus = "completed" | "pending" | "failed";
+
 export type JournalEntry = {
   id: string;
   createdAt: Date;
@@ -6,6 +8,8 @@ export type JournalEntry = {
   titleEmoji?: string;
   body: string;
   sessionId?: string;
+  audioUri?: string;
+  transcriptionStatus?: TranscriptionStatus;
 };
 
 export type WalkSession = {

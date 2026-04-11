@@ -150,12 +150,16 @@ export default function WalkScreen() {
         }
       }
 
+      const transcriptionFailed = !session.transcript.trim() && !!session.audioUri;
+
       const entry = await createWalkEntry(db, {
         body: session.transcript,
         startedAt,
         endedAt,
         durationSec: session.durationSec,
         stepCount: forDate ? 0 : stepCount,
+        audioUri: session.audioUri,
+        transcriptionStatus: transcriptionFailed ? "pending" : "completed",
       });
 
       if (entry) {

@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
 
 import { syncScheduledNotifications } from "../notifications/scheduler";
+import { transcribeAudioFile } from "../transcription/openai";
 import { success as hapticSuccess, warning as hapticWarning, tapLight } from "../../lib/haptics";
 import {
   loadBuddyState,
@@ -37,9 +38,11 @@ import {
   getEntriesNeedingTaskExtraction,
   getEntriesVersion,
   listOpenTasks,
+  listPendingTranscriptions,
   markTasksExtracted,
   migrateUtcToLocal,
   skipTask,
+  updateEntryTranscription,
   type TaskRow,
 } from "../journal/repository";
 import {
@@ -205,6 +208,9 @@ export default function HomeScreen({
       void getRecordingPermissionStatus().then((status) => {
         setMicDenied(status === "denied");
       });
+
+      // Retry pending transcriptions in background
+      void retryPendingTranscriptions(db);
 
       // Update buddy if enabled
       void loadBuddyState().then((prev) => {
@@ -831,6 +837,24 @@ type TaskGroup = {
   label: string;
   tasks: TaskRow[];
 };
+
+async function retryPendingTranscriptions(db: import("expo-sqlite").SQLiteDatabase) {
+  try {
+    const pending = await listPendingTranscriptions(db);
+    for (const entry of pending) {
+      try {
+        const text = await transcribeAudioFile(entry.audioUri);
+        if (text.trim()) {
+          await updateEntryTranscription(db, entry.id, text.trim());
+        }
+      } catch {
+        // Will retry next time the home screen loads
+      }
+    }
+  } catch {
+    // Silently skip
+  }
+}
 
 function getTimeOfDaySlot(): "morning" | "afternoon" | "evening" | "night" {
   const h = new Date().getHours();

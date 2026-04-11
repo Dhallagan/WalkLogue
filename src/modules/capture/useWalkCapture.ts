@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Constants from "expo-constants";
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from "expo-av";
+import { File, Paths } from "expo-file-system";
 
 import { transcribeAudioFile } from "../transcription/openai";
 
@@ -9,6 +10,7 @@ type SessionSnapshot = {
   startedAt: Date;
   endedAt: Date;
   durationSec: number;
+  audioUri?: string; // persisted audio file, present if transcription failed
 };
 
 export function useWalkCapture() {
@@ -127,20 +129,46 @@ export function useWalkCapture() {
         throw new Error("Recorded audio file was not available.");
       }
 
+      // Save audio to permanent storage before attempting transcription
+      const ext = audioUri.slice(audioUri.lastIndexOf(".")) || ".m4a";
+      const permanentDir = `${Paths.document}/recordings`;
+      const permanentPath = `${permanentDir}/${Date.now()}${ext}`;
+      try {
+        const dir = new File(permanentDir);
+        if (!(await dir.exists?.()) && Paths.document) {
+          await new File(Paths.document).mkdir("recordings");
+        }
+      } catch {}
+      const tempFile = new File(audioUri);
+      await tempFile.copy(new File(permanentPath));
+
       const abortController = new AbortController();
       transcriptionAbortRef.current = abortController;
-      const transcriptText = await transcribeWithRetry(audioUri, abortController.signal, 3);
-      const normalizedTranscript =
-        transcriptText.trim() || "No speech was detected during this walk.";
 
-      setTranscript(normalizedTranscript);
+      try {
+        const transcriptText = await transcribeWithRetry(permanentPath, abortController.signal, 3);
+        const normalizedTranscript =
+          transcriptText.trim() || "No speech was detected during this walk.";
 
-      return {
-        transcript: normalizedTranscript,
-        startedAt: sessionStart,
-        endedAt,
-        durationSec: calculateDurationSec(sessionStart, endedAt),
-      };
+        setTranscript(normalizedTranscript);
+
+        return {
+          transcript: normalizedTranscript,
+          startedAt: sessionStart,
+          endedAt,
+          durationSec: calculateDurationSec(sessionStart, endedAt),
+        };
+      } catch (transcriptionError) {
+        // Transcription failed but audio is saved. Return empty transcript
+        // so the entry can still be created with the audio attached.
+        return {
+          transcript: "",
+          startedAt: sessionStart,
+          endedAt,
+          durationSec: calculateDurationSec(sessionStart, endedAt),
+          audioUri: permanentPath,
+        };
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Could not finish recording.";
