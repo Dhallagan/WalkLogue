@@ -1,5 +1,11 @@
-import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
+
+let Notifications: typeof import("expo-notifications") | null = null;
+try {
+  Notifications = require("expo-notifications");
+} catch {
+  // Native module not available (Expo Go or missing native rebuild)
+}
 
 import type { EntryListItem } from "../journal/repository";
 
@@ -39,19 +45,22 @@ const STREAK_NUDGES = [
   "{n} straight days. Keep it going?",
 ];
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+if (Notifications) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
 
 export type NotificationPermissionStatus = "granted" | "denied" | "undetermined";
 
 export async function getNotificationPermissionStatus(): Promise<NotificationPermissionStatus> {
+  if (!Notifications) return "undetermined";
   const settings = await Notifications.getPermissionsAsync();
   if (settings.granted) return "granted";
   if (settings.canAskAgain) return "undetermined";
@@ -59,6 +68,7 @@ export async function getNotificationPermissionStatus(): Promise<NotificationPer
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {
+  if (!Notifications) return false;
   const result = await Notifications.requestPermissionsAsync({
     ios: { allowAlert: true, allowBadge: false, allowSound: false },
   });
@@ -94,6 +104,7 @@ export async function syncScheduledNotifications(entries: EntryListItem[]) {
   const enabled = await getNotificationsEnabled();
   const status = await getNotificationPermissionStatus();
 
+  if (!Notifications) return;
   await cancelByTag([DAILY_TAG, STREAK_TAG, MEMORY_TAG]);
 
   if (!enabled || status !== "granted") return;
@@ -117,6 +128,7 @@ export async function syncScheduledNotifications(entries: EntryListItem[]) {
 }
 
 async function scheduleDaily(hour: number, minute: number) {
+  if (!Notifications) return;
   const body = pick(DAILY_NUDGES);
   await Notifications.scheduleNotificationAsync({
     identifier: DAILY_TAG,
@@ -131,6 +143,7 @@ async function scheduleDaily(hour: number, minute: number) {
 }
 
 async function scheduleStreakSave(streak: number) {
+  if (!Notifications) return;
   const template = pick(STREAK_NUDGES);
   const body = template.replace("{n}", String(streak));
   const fireAt = nextOccurrenceToday(20, 0);
@@ -146,6 +159,7 @@ async function scheduleStreakSave(streak: number) {
 }
 
 async function scheduleOnThisDay(entries: EntryListItem[]) {
+  if (!Notifications) return;
   const memory = findMemoryEntry(entries);
   if (!memory) return;
   const fireAt = nextOccurrenceToday(9, 0) ?? nextOccurrenceTomorrow(9, 0);
@@ -239,6 +253,7 @@ function pick<T>(arr: T[]): T {
 }
 
 async function cancelByTag(tags: string[]) {
+  if (!Notifications) return;
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
   for (const item of scheduled) {
     if (tags.includes(item.identifier)) {
