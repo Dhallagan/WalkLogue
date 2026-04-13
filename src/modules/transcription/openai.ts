@@ -1,6 +1,7 @@
-import { getApiBaseUrl, getApiSecret } from "../../lib/api";
+import { getTranscriptionKey } from "../../lib/api";
 import { showToast } from "../../components/toast";
 
+const OPENAI_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions";
 const OPENAI_TRANSCRIPTION_MODEL = "whisper-1";
 
 type OpenAITranscriptionResponse = {
@@ -8,6 +9,8 @@ type OpenAITranscriptionResponse = {
 };
 
 export async function transcribeAudioFile(audioUri: string, signal?: AbortSignal) {
+  const apiKey = await getTranscriptionKey();
+
   const formData = new FormData();
   formData.append("model", OPENAI_TRANSCRIPTION_MODEL);
   formData.append("file", {
@@ -18,10 +21,10 @@ export async function transcribeAudioFile(audioUri: string, signal?: AbortSignal
 
   let response: Response;
   try {
-    response = await fetch(`${getApiBaseUrl()}/api/transcribe`, {
+    response = await fetch(OPENAI_TRANSCRIPTION_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${getApiSecret()}`,
+        Authorization: `Bearer ${apiKey}`,
         Accept: "application/json",
       },
       signal,
