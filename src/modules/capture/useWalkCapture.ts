@@ -1,12 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Constants from "expo-constants";
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from "expo-av";
-let FileSystem: any = null;
-try {
-  FileSystem = require("expo-file-system/legacy");
-} catch {
-  try { FileSystem = require("expo-file-system"); } catch {}
-}
+import * as FileSystem from "expo-file-system/legacy";
 
 import { transcribeAudioFile } from "../transcription/openai";
 
@@ -135,24 +130,20 @@ export function useWalkCapture() {
         throw new Error("Recorded audio file was not available.");
       }
 
-      // Save audio to permanent storage BEFORE attempting transcription.
-      // This is the "never lose a walk" guarantee. Even if transcription
-      // fails, the recording survives.
+      // Save audio to permanent storage before attempting transcription
       let permanentPath: string | undefined;
-      if (FileSystem?.documentDirectory) {
-        try {
-          const ext = audioUri.slice(audioUri.lastIndexOf(".")) || ".m4a";
-          const permanentDir = `${FileSystem.documentDirectory}recordings/`;
-          permanentPath = `${permanentDir}${Date.now()}${ext}`;
-          const dirInfo = await FileSystem.getInfoAsync(permanentDir);
-          if (!dirInfo.exists) {
-            await FileSystem.makeDirectoryAsync(permanentDir, { intermediates: true });
-          }
-          await FileSystem.copyAsync({ from: audioUri, to: permanentPath });
-        } catch {
-          permanentPath = audioUri;
+      try {
+        const ext = audioUri.slice(audioUri.lastIndexOf(".")) || ".m4a";
+        const permanentDir = `${FileSystem.documentDirectory}recordings/`;
+        permanentPath = `${permanentDir}${Date.now()}${ext}`;
+        const dirInfo = await FileSystem.getInfoAsync(permanentDir);
+        if (!dirInfo.exists) {
+          await FileSystem.makeDirectoryAsync(permanentDir, { intermediates: true });
         }
-      } else {
+        await FileSystem.copyAsync({ from: audioUri, to: permanentPath });
+      } catch (copyError) {
+        console.error("Failed to save audio permanently", copyError);
+        // Fall back to the temp URI for transcription
         permanentPath = audioUri;
       }
 
@@ -174,6 +165,8 @@ export function useWalkCapture() {
           audioUri: permanentPath,
         };
       } catch (transcriptionError) {
+        // Transcription failed but audio is saved. Return empty transcript
+        // so the entry can still be created with the audio attached.
         const reason = classifyTranscriptionError(transcriptionError);
         return {
           transcript: "",
