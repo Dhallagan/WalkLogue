@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Audio, type AVPlaybackStatus } from "expo-av";
-import * as FileSystem from "expo-file-system/legacy";
 
 import { useTheme, useThemeColors } from "../theme";
 import { tapMedium } from "../lib/haptics";
@@ -18,7 +17,7 @@ export function AudioPlayer({ uri }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const progress = duration > 0 ? position / duration : 0;
 
@@ -27,7 +26,6 @@ export function AudioPlayer({ uri }: Props) {
     setPosition(status.positionMillis);
     setDuration(status.durationMillis ?? 0);
     setIsPlaying(status.isPlaying);
-    setIsLoaded(true);
     if (status.didJustFinish) {
       setIsPlaying(false);
       setPosition(0);
@@ -35,17 +33,9 @@ export function AudioPlayer({ uri }: Props) {
     }
   }, []);
 
-  const [fileExists, setFileExists] = useState(true);
-
   const loadSound = useCallback(async () => {
     if (soundRef.current) return;
     try {
-      // Check if file exists before loading
-      const info = await FileSystem.getInfoAsync(uri);
-      if (!info.exists) {
-        setFileExists(false);
-        return;
-      }
       const { sound } = await Audio.Sound.createAsync(
         { uri },
         { shouldPlay: false },
@@ -54,7 +44,7 @@ export function AudioPlayer({ uri }: Props) {
       );
       soundRef.current = sound;
     } catch {
-      setFileExists(false);
+      setLoadFailed(true);
     }
   }, [uri, onStatus]);
 
@@ -80,14 +70,10 @@ export function AudioPlayer({ uri }: Props) {
     }
   }, [isPlaying, loadSound]);
 
-  const seek = useCallback(async (ratio: number) => {
-    const sound = soundRef.current;
-    if (!sound || duration === 0) return;
-    const target = Math.round(ratio * duration);
-    await sound.setPositionAsync(target);
-  }, [duration]);
-
-  if (!fileExists) return null;
+  // Hide if audio file can't be loaded (dead path, missing file)
+  if (loadFailed) return null;
+  // Hide if no duration detected after load (empty/corrupt file)
+  if (duration === 0 && !isPlaying && soundRef.current === null && loadFailed) return null;
 
   return (
     <View style={styles.container}>
@@ -102,10 +88,7 @@ export function AudioPlayer({ uri }: Props) {
         <View style={styles.trackContainer}>
           <View style={styles.track} />
           <View style={[styles.trackFill, { width: `${progress * 100}%` }]} />
-          <Pressable
-            style={[styles.scrubber, { left: `${progress * 100}%` }]}
-            onPress={() => {}}
-          />
+          <View style={[styles.scrubber, { left: `${progress * 100}%` }]} />
         </View>
         <View style={styles.timeRow}>
           <Text style={styles.time}>{formatTime(position)}</Text>

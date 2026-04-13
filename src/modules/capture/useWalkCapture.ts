@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Constants from "expo-constants";
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from "expo-av";
-import * as FileSystem from "expo-file-system/legacy";
+import { File, Paths } from "expo-file-system";
 
 import { transcribeAudioFile } from "../transcription/openai";
 
@@ -134,16 +134,14 @@ export function useWalkCapture() {
       let permanentPath: string | undefined;
       try {
         const ext = audioUri.slice(audioUri.lastIndexOf(".")) || ".m4a";
-        const permanentDir = `${FileSystem.documentDirectory}recordings/`;
-        permanentPath = `${permanentDir}${Date.now()}${ext}`;
-        const dirInfo = await FileSystem.getInfoAsync(permanentDir);
-        if (!dirInfo.exists) {
-          await FileSystem.makeDirectoryAsync(permanentDir, { intermediates: true });
-        }
-        await FileSystem.copyAsync({ from: audioUri, to: permanentPath });
+        const recordingsDir = new File(Paths.document, "recordings");
+        try { recordingsDir.create({ intermediates: true }); } catch {}
+        const destFile = new File(recordingsDir, `${Date.now()}${ext}`);
+        const srcFile = new File(audioUri);
+        await srcFile.copy(destFile);
+        permanentPath = destFile.uri;
       } catch (copyError) {
-        console.error("Failed to save audio permanently", copyError);
-        // Fall back to the temp URI for transcription
+        if (__DEV__) console.error("Failed to save audio permanently", copyError);
         permanentPath = audioUri;
       }
 
