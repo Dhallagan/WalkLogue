@@ -84,8 +84,27 @@ export function useWalkCapture() {
       playThroughEarpieceAndroid: false,
     });
 
+    // Voice-optimized recording: 64kbps mono 22kHz.
+    // Sounds great for speech playback. ~4x smaller than HIGH_QUALITY.
+    // 25MB limit covers walks up to ~50 minutes.
+    const voicePreset: Audio.RecordingOptions = {
+      ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+      ios: {
+        ...Audio.RecordingOptionsPresets.HIGH_QUALITY.ios,
+        bitRate: 64000,
+        numberOfChannels: 1,
+        sampleRate: 22050,
+      },
+      android: {
+        ...Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
+        bitRate: 64000,
+        numberOfChannels: 1,
+        sampleRate: 22050,
+      },
+    };
+
     const { recording } = await Audio.Recording.createAsync(
-      Audio.RecordingOptionsPresets.HIGH_QUALITY,
+      voicePreset,
       handleRecordingStatusUpdate,
       250,
     );
