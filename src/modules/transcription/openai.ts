@@ -1,4 +1,5 @@
 import { getTranscriptionKey } from "../../lib/api";
+import { transcodeForUpload } from "../../lib/transcode";
 import { showToast } from "../../components/toast";
 
 const OPENAI_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions";
@@ -11,12 +12,16 @@ type OpenAITranscriptionResponse = {
 export async function transcribeAudioFile(audioUri: string, signal?: AbortSignal) {
   const apiKey = await getTranscriptionKey();
 
+  // Transcode to 16kHz mono 32kbps before upload.
+  // Reduces file size ~4x. Zero quality loss for transcription.
+  const uploadUri = await transcodeForUpload(audioUri);
+
   const formData = new FormData();
   formData.append("model", OPENAI_TRANSCRIPTION_MODEL);
   formData.append("file", {
-    uri: audioUri,
-    name: buildFilename(audioUri),
-    type: guessMimeType(audioUri),
+    uri: uploadUri,
+    name: buildFilename(uploadUri),
+    type: guessMimeType(uploadUri),
   } as unknown as Blob);
 
   let response: Response;
