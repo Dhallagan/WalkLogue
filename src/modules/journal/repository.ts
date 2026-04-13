@@ -32,6 +32,7 @@ type EntryRow = {
   step_count: number | null;
   audio_uri: string | null;
   transcription_status: string | null;
+  transcription_error: string | null;
 };
 
 let entriesVersion = 0;
@@ -142,6 +143,13 @@ export async function initializeDatabase(db: SQLiteDatabase) {
     `);
   }
 
+  if (!journalColumns.some((column) => column.name === "transcription_error")) {
+    await db.execAsync(`
+      ALTER TABLE journal_entries
+      ADD COLUMN transcription_error TEXT;
+    `);
+  }
+
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY NOT NULL,
@@ -220,7 +228,7 @@ export async function listEntries(db: SQLiteDatabase): Promise<EntryListItem[]> 
       journal_entries.body,
       journal_entries.session_id,
       journal_entries.audio_uri,
-      journal_entries.transcription_status,
+      journal_entries.transcription_status, journal_entries.transcription_error,
       walk_sessions.started_at,
       walk_sessions.ended_at,
       walk_sessions.duration_sec,
@@ -249,7 +257,7 @@ export async function getEntryById(
         journal_entries.body,
         journal_entries.session_id,
         journal_entries.audio_uri,
-        journal_entries.transcription_status,
+        journal_entries.transcription_status, journal_entries.transcription_error,
         walk_sessions.started_at,
         walk_sessions.ended_at,
         walk_sessions.duration_sec,
@@ -311,6 +319,7 @@ export async function createWalkEntry(
     stepCount: number;
     audioUri?: string;
     transcriptionStatus?: string;
+    transcriptionError?: string;
   },
 ) {
   const entryId = createId("entry");
@@ -329,9 +338,10 @@ export async function createWalkEntry(
           body,
           session_id,
           audio_uri,
-          transcription_status
+          transcription_status,
+          transcription_error
         )
-        VALUES (?, ?, 'walk', ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, 'walk', ?, ?, ?, ?, ?, ?, ?)
       `,
       entryId,
       formatLocalISOString(createdAt),
@@ -341,6 +351,7 @@ export async function createWalkEntry(
       sessionId,
       input.audioUri ?? null,
       input.transcriptionStatus ?? "completed",
+      input.transcriptionError ?? null,
     );
 
     await db.runAsync(
@@ -529,7 +540,7 @@ export async function getEntriesNeedingTaskExtraction(
   db: SQLiteDatabase,
 ): Promise<EntryListItem[]> {
   const rows = await db.getAllAsync<EntryRow>(
-    `SELECT je.id, je.created_at, je.source, je.title, je.title_emoji, je.body, je.session_id, je.audio_uri, je.transcription_status,
+    `SELECT je.id, je.created_at, je.source, je.title, je.title_emoji, je.body, je.session_id, je.audio_uri, je.transcription_status, je.transcription_error,
             ws.started_at, ws.ended_at, ws.duration_sec, ws.step_count
      FROM journal_entries je
      LEFT JOIN walk_sessions ws ON ws.entry_id = je.id
@@ -821,7 +832,7 @@ export async function getEntriesForPerson(
     `
     SELECT
       je.id, je.created_at, je.source, je.title, je.title_emoji,
-      je.body, je.session_id, je.audio_uri, je.transcription_status,
+      je.body, je.session_id, je.audio_uri, je.transcription_status, je.transcription_error,
       ws.started_at, ws.ended_at, ws.duration_sec, ws.step_count
     FROM people_entries pe
     JOIN journal_entries je ON je.id = pe.entry_id
@@ -926,7 +937,7 @@ export async function getEntriesNeedingPeopleExtraction(
   const rows = await db.getAllAsync<EntryRow>(`
     SELECT
       je.id, je.created_at, je.source, je.title, je.title_emoji,
-      je.body, je.session_id, je.audio_uri, je.transcription_status,
+      je.body, je.session_id, je.audio_uri, je.transcription_status, je.transcription_error,
       ws.started_at, ws.ended_at, ws.duration_sec, ws.step_count
     FROM journal_entries je
     LEFT JOIN walk_sessions ws ON ws.entry_id = je.id
@@ -1062,5 +1073,6 @@ function mapEntryRow(row: EntryRow): EntryDetail {
     stepCount: row.step_count ?? undefined,
     audioUri: row.audio_uri ?? undefined,
     transcriptionStatus: (row.transcription_status as "completed" | "pending" | "failed") ?? "completed",
+    transcriptionError: row.transcription_error ?? undefined,
   };
 }

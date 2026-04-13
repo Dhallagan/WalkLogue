@@ -160,6 +160,7 @@ export default function WalkScreen() {
         stepCount: forDate ? 0 : stepCount,
         audioUri: session.audioUri,
         transcriptionStatus: transcriptionFailed ? "pending" : "completed",
+        transcriptionError: session.transcriptionError,
       });
 
       if (entry) {

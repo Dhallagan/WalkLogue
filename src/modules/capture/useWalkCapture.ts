@@ -10,7 +10,8 @@ type SessionSnapshot = {
   startedAt: Date;
   endedAt: Date;
   durationSec: number;
-  audioUri?: string; // persisted audio file, present if transcription failed
+  audioUri?: string;
+  transcriptionError?: string;
 };
 
 export function useWalkCapture() {
@@ -166,12 +167,14 @@ export function useWalkCapture() {
       } catch (transcriptionError) {
         // Transcription failed but audio is saved. Return empty transcript
         // so the entry can still be created with the audio attached.
+        const reason = classifyTranscriptionError(transcriptionError);
         return {
           transcript: "",
           startedAt: sessionStart,
           endedAt,
           durationSec: calculateDurationSec(sessionStart, endedAt),
           audioUri: permanentPath,
+          transcriptionError: reason,
         };
       }
     } catch (error) {
@@ -286,6 +289,15 @@ async function setPlaybackAudioMode() {
   } catch {
     // Ignore mode reset failures during cleanup.
   }
+}
+
+function classifyTranscriptionError(error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (/413|too large|entity/i.test(msg)) return "Recording was too large to upload. Try a shorter walk.";
+  if (/401|unauthorized/i.test(msg)) return "Authentication failed. Try updating the app.";
+  if (/network|fetch|timeout|abort/i.test(msg)) return "Network connection failed. Check your WiFi or signal.";
+  if (/5\d{2}/i.test(msg)) return "Server is temporarily down. It will retry automatically.";
+  return "Transcription failed unexpectedly. Tap retry to try again.";
 }
 
 async function transcribeWithRetry(

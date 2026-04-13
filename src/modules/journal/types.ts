@@ -10,6 +10,7 @@ export type JournalEntry = {
   sessionId?: string;
   audioUri?: string;
   transcriptionStatus?: TranscriptionStatus;
+  transcriptionError?: string;
 };
 
 export type WalkSession = {
