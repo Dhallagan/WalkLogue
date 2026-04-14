@@ -94,9 +94,27 @@ export default function WalkScreen() {
   const leadingBars = bars.slice(0, 3);
   const trailingBars = bars.slice(3);
 
+  const [transcribePhase, setTranscribePhase] = useState(0);
+
+  useEffect(() => {
+    if (!isTranscribing) { setTranscribePhase(0); return; }
+    const phases = [0, 1, 2];
+    let i = 0;
+    const interval = setInterval(() => {
+      i = (i + 1) % phases.length;
+      setTranscribePhase(phases[i]);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isTranscribing]);
+
   const recorderStatusText = useMemo(() => {
     if (isTranscribing) {
-      return "Transcribing...";
+      const messages = [
+        "Saving your recording...",
+        "Transcribing your walk...",
+        "Almost there...",
+      ];
+      return messages[transcribePhase] ?? messages[0];
     }
 
     if (isSimulatorRecordingFallback) {
@@ -104,7 +122,7 @@ export default function WalkScreen() {
     }
 
     return "Recording. Lock your screen and keep talking.";
-  }, [isSimulatorRecordingFallback, isTranscribing, stepPermission, stepSource]);
+  }, [isSimulatorRecordingFallback, isTranscribing, transcribePhase, stepPermission, stepSource]);
 
   async function handleFinish() {
     if (isTranscribing) {
@@ -375,13 +393,16 @@ export default function WalkScreen() {
 
         <View style={styles.bottomAction}>
           {isTranscribing ? (
-            <PaperActionButton
-              style={styles.cancelButton}
-              textStyle={styles.cancelButtonText}
-              onPress={handleCancelTranscription}
-            >
-              Cancel Transcription
-            </PaperActionButton>
+            <View style={styles.transcribingState}>
+              <View style={styles.transcribingDots}>
+                <View style={[styles.dot, transcribePhase >= 0 && styles.dotActive]} />
+                <View style={[styles.dot, transcribePhase >= 1 && styles.dotActive]} />
+                <View style={[styles.dot, transcribePhase >= 2 && styles.dotActive]} />
+              </View>
+              <Pressable onPress={handleCancelTranscription}>
+                <Text style={styles.cancelLink}>Cancel</Text>
+              </Pressable>
+            </View>
           ) : (
             <PaperRecordButton
               label="End Walk"
@@ -564,15 +585,28 @@ function createStyles(colors: ColorTokens) {
     backgroundColor: colors.accent,
     opacity: 0.82,
   },
-  cancelButton: {
-    minWidth: 220,
-    backgroundColor: colors.surface,
+  transcribingState: {
+    alignItems: "center",
+    gap: 16,
+    paddingVertical: 20,
   },
-  cancelButtonText: {
-    fontFamily: "Courier",
-    fontSize: 13,
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
+  transcribingDots: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.border,
+  },
+  dotActive: {
+    backgroundColor: colors.accent,
+  },
+  cancelLink: {
+    color: colors.muted,
+    fontSize: 14,
   },
 });
 }
