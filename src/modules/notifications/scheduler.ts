@@ -29,9 +29,18 @@ const DAILY_TAG = "walklogue-daily";
 const STREAK_TAG = "walklogue-streak";
 const MEMORY_TAG = "walklogue-memory";
 const FOLLOWUP_TAG = "walklogue-followup";
+const MORNING_TAG = "walklogue-morning";
 
 const QUIET_START = 22;
 const QUIET_END = 8;
+
+const MORNING_NUDGES = [
+  "What's on your plate today?",
+  "Morning. Anything you want to get done today?",
+  "Quick walk to plan your day?",
+  "What does today look like?",
+  "Set an intention for today.",
+];
 
 const DAILY_NUDGES = [
   "Out for a walk today?",
@@ -107,7 +116,7 @@ export async function syncScheduledNotifications(entries: EntryListItem[]) {
   const status = await getNotificationPermissionStatus();
 
   if (!Notifications) return;
-  await cancelByTag([DAILY_TAG, STREAK_TAG, MEMORY_TAG, FOLLOWUP_TAG]);
+  await cancelByTag([DAILY_TAG, STREAK_TAG, MEMORY_TAG, FOLLOWUP_TAG, MORNING_TAG]);
 
   if (!enabled || status !== "granted") return;
 
@@ -118,9 +127,10 @@ export async function syncScheduledNotifications(entries: EntryListItem[]) {
   const streak = computeStreak(completedEntries);
   const { hour, minute } = await getNotificationTime();
 
-  // Always schedule the repeating daily nudge. It fires every day at the
-  // chosen time. When the user opens the app and has already journaled,
-  // we cancel and reschedule (so today's is skipped but tomorrow's fires).
+  // Morning nudge at 8am: plan your day
+  await scheduleMorning();
+
+  // Evening nudge at chosen time (default 6pm): journal your day
   await scheduleDaily(hour, minute);
 
   if (streak >= 3 && !journaledToday) {
@@ -136,6 +146,21 @@ export async function syncScheduledNotifications(entries: EntryListItem[]) {
     );
     void scheduleFollowUp(todayEntries);
   }
+}
+
+async function scheduleMorning() {
+  if (!Notifications) return;
+  const body = pick(MORNING_NUDGES);
+  await Notifications.scheduleNotificationAsync({
+    identifier: MORNING_TAG,
+    content: { title: "WalkLogue", body, data: { tag: MORNING_TAG } },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+      hour: 8,
+      minute: 0,
+      repeats: true,
+    },
+  });
 }
 
 async function scheduleDaily(hour: number, minute: number) {
