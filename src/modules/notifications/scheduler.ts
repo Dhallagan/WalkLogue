@@ -8,6 +8,7 @@ try {
 }
 
 import type { EntryListItem } from "../journal/repository";
+import { getApiBaseUrl, getApiSecret, hasApiConfig } from "../../lib/api";
 
 function isSameCalendarDay(left: Date, right: Date) {
   return (
@@ -27,6 +28,7 @@ const NOTIF_ENABLED_KEY = "walklogue-notif-enabled";
 const DAILY_TAG = "walklogue-daily";
 const STREAK_TAG = "walklogue-streak";
 const MEMORY_TAG = "walklogue-memory";
+const FOLLOWUP_TAG = "walklogue-followup";
 
 const QUIET_START = 22;
 const QUIET_END = 8;
@@ -105,7 +107,7 @@ export async function syncScheduledNotifications(entries: EntryListItem[]) {
   const status = await getNotificationPermissionStatus();
 
   if (!Notifications) return;
-  await cancelByTag([DAILY_TAG, STREAK_TAG, MEMORY_TAG]);
+  await cancelByTag([DAILY_TAG, STREAK_TAG, MEMORY_TAG, FOLLOWUP_TAG]);
 
   if (!enabled || status !== "granted") return;
 
@@ -126,6 +128,14 @@ export async function syncScheduledNotifications(entries: EntryListItem[]) {
   }
 
   await scheduleOnThisDay(completedEntries);
+
+  // Generate a contextual follow-up based on today's entries
+  if (journaledToday && hasApiConfig()) {
+    const todayEntries = completedEntries.filter((e) =>
+      isSameCalendarDay(e.createdAt, new Date()),
+    );
+    void scheduleFollowUp(todayEntries);
+  }
 }
 
 async function scheduleDaily(hour: number, minute: number) {
@@ -177,6 +187,67 @@ async function scheduleOnThisDay(entries: EntryListItem[]) {
       date: fireAt,
     },
   });
+}
+
+async function scheduleFollowUp(todayEntries: EntryListItem[]) {
+  if (!Notifications) return;
+
+  // Only fire follow-ups in the evening (schedule for 9pm)
+  const fireAt = nextOccurrenceToday(21, 0);
+  if (!fireAt) return;
+
+  try {
+    const bodies = todayEntries.map((e) => e.body.trim()).filter(Boolean);
+    if (bodies.length === 0) return;
+
+    const context = bodies.join("\n---\n").slice(0, 2000);
+
+    const res = await fetch(`${getApiBaseUrl()}/api/respond`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${getApiSecret()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-5-mini",
+        instructions: [
+          "Read these journal entries from today.",
+          "Generate ONE short follow-up question (max 15 words) that the person would want to be asked tonight.",
+          "Look for: plans mentioned (dinner, meeting, errand), people they're seeing, things they're looking forward to or dreading.",
+          "Frame it as a friend checking in: 'How was dinner with Steph?' not 'Did you complete your planned activity?'",
+          "If nothing warrants a follow-up, respond with just the word SKIP.",
+          "Return ONLY the question text, nothing else.",
+        ].join(" "),
+        input: context,
+        reasoning: { effort: "low" },
+      }),
+    });
+
+    if (!res.ok) return;
+
+    const data = await res.json() as { output?: Array<{ content?: Array<{ text?: string }> }> };
+    const text = data.output
+      ?.flatMap((item: any) => item.content?.filter((c: any) => c.type === "output_text").map((c: any) => c.text) ?? [])
+      .join("")
+      .trim();
+
+    if (!text || text === "SKIP" || text.length > 80) return;
+
+    await Notifications.scheduleNotificationAsync({
+      identifier: FOLLOWUP_TAG,
+      content: {
+        title: "WalkLogue",
+        body: text,
+        data: { tag: FOLLOWUP_TAG },
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: fireAt,
+      },
+    });
+  } catch {
+    // AI unavailable, skip follow-up
+  }
 }
 
 function findMemoryEntry(entries: EntryListItem[]): EntryListItem | null {
